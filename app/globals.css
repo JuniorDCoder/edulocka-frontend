@@ -1,26 +1,204 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-geist-sans), "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  --color-background: #fafafa;
+  --color-foreground: #171717;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f5f5f5;
+  --color-primary: #2563eb;
+  --color-primary-foreground: #ffffff;
+  --color-secondary: #059669;
+  --color-accent: #ea580c;
+  --color-muted: #737373;
+  --color-border: #e5e5e5;
+  --color-border-strong: #d4d4d4;
+
+  --color-dark-bg: #0a0a0a;
+  --color-dark-surface: #1a1a1a;
+  --color-dark-surface-alt: #111111;
+  --color-dark-primary: #3b82f6;
+  --color-dark-secondary: #10b981;
+  --color-dark-accent: #f97316;
+  --color-dark-muted: #9ca3af;
+  --color-dark-border: #262626;
+  --color-dark-border-strong: #404040;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Base styles */
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans);
+  background: var(--color-background);
+  color: var(--color-foreground);
+  transition: background-color 300ms ease, color 300ms ease;
+}
+
+.dark body {
+  background: var(--color-dark-bg);
+  color: #ffffff;
+}
+
+/* Grid overlay pattern */
+.grid-pattern {
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.dark .grid-pattern {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+/* Neon glow effects */
+.neon-border {
+  border: 2px solid var(--color-primary);
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.3);
+}
+
+.dark .neon-border {
+  border-color: var(--color-dark-primary);
+  box-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+}
+
+.neon-border-green {
+  border: 2px solid var(--color-secondary);
+  box-shadow: 0 0 8px rgba(5, 150, 105, 0.3);
+}
+
+.dark .neon-border-green {
+  border-color: var(--color-dark-secondary);
+  box-shadow: 0 0 15px rgba(16, 185, 129, 0.5);
+}
+
+.neon-border-orange {
+  border: 2px solid var(--color-accent);
+  box-shadow: 0 0 8px rgba(234, 88, 12, 0.3);
+}
+
+.dark .neon-border-orange {
+  border-color: var(--color-dark-accent);
+  box-shadow: 0 0 15px rgba(249, 115, 22, 0.5);
+}
+
+/* Text glow */
+.text-glow {
+  color: #2563eb;
+  filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.4));
+}
+
+.dark .text-glow {
+  color: #22d3ee;
+  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.8));
+}
+
+.text-glow-green {
+  color: #059669;
+  filter: drop-shadow(0 0 6px rgba(5, 150, 105, 0.4));
+}
+
+.dark .text-glow-green {
+  color: #10b981;
+  filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.8));
+}
+
+/* Hexagonal badge */
+.hexagon {
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+}
+
+/* Pulse animation */
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Blink cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 1s step-end infinite;
+}
+
+/* Data stream animation */
+@keyframes stream {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+.animate-stream {
+  animation: stream 3s linear infinite;
+}
+
+/* Counter animation */
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-count {
+  animation: count-up 0.6s ease-out forwards;
+}
+
+/* Smooth theme transition for key elements */
+* {
+  transition-property: background-color, border-color, box-shadow;
+  transition-duration: 300ms;
+  transition-timing-function: ease;
+}
+
+/* Reset transition on elements that shouldn't transition */
+input, textarea, button, a {
+  transition-property: background-color, border-color, box-shadow, color, opacity, transform;
+  transition-duration: 200ms;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f5;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d4d4d4;
+  border-radius: 2px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #404040;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a3a3a3;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #525252;
 }
