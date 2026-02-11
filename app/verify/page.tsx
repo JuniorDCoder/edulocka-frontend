@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { getCertificateById, getCertificateByTxHash, getCertificatesByWallet } from "@/lib/contract";
@@ -24,14 +24,16 @@ import {
   Download,
 } from "lucide-react";
 
-export default function VerifyPage() {
+function VerifyPageContent() {
   const searchParams = useSearchParams();
-  const [searchQuery, setSearchQuery] = useState("");
+  const initialCertId = searchParams.get("certId")?.trim() || "";
+  const [searchQuery, setSearchQuery] = useState(initialCertId);
   const [searchType, setSearchType] = useState<"cert" | "tx" | "wallet">("cert");
   const [isSearching, setIsSearching] = useState(false);
   const [result, setResult] = useState<Certificate | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const lastAutoSearchRef = useRef<string | null>(null);
 
   const doSearch = useCallback(async (query: string, type: "cert" | "tx" | "wallet") => {
     if (!query.trim()) return;
@@ -77,12 +79,16 @@ export default function VerifyPage() {
 
   // Auto-verify from URL: /verify?certId=CERT-2026-001
   useEffect(() => {
-    const certId = searchParams.get("certId");
-    if (certId) {
+    const certId = searchParams.get("certId")?.trim();
+    if (!certId || lastAutoSearchRef.current === certId) return;
+
+    lastAutoSearchRef.current = certId;
+    const timer = setTimeout(() => {
       setSearchQuery(certId);
-      setSearchType("cert");
-      doSearch(certId, "cert");
-    }
+      void doSearch(certId, "cert");
+    }, 0);
+
+    return () => clearTimeout(timer);
   }, [searchParams, doSearch]);
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -327,5 +333,26 @@ export default function VerifyPage() {
         )}
       </div>
     </div>
+  );
+}
+
+function VerifyPageFallback() {
+  return (
+    <div className="grid-pattern min-h-screen">
+      <div className="mx-auto flex max-w-7xl items-center justify-center px-4 py-24 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-3 rounded-none border-2 border-gray-200 bg-white px-6 py-4 dark:border-gray-700 dark:bg-gray-900">
+          <Loader2 className="h-5 w-5 animate-spin text-blue-500" />
+          <span className="text-sm text-gray-600 dark:text-gray-400">Loading verification page...</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function VerifyPage() {
+  return (
+    <Suspense fallback={<VerifyPageFallback />}>
+      <VerifyPageContent />
+    </Suspense>
   );
 }
