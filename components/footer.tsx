@@ -1,10 +1,43 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Github, ExternalLink, GraduationCap, Link as LinkIcon, Mail, Phone } from "lucide-react";
 import { CONTRACT_ADDRESS } from "@/lib/contract-config";
 import { truncateAddress } from "@/lib/mock-data";
+import { getNetworkInfo } from "@/lib/contract";
+import { useWallet } from "@/lib/wallet-context";
 
 export function Footer() {
   const contractAddress = CONTRACT_ADDRESS;
+  const { wallet } = useWallet();
+  const [networkInfo, setNetworkInfo] = useState({
+    name: "Connecting...",
+    chainId: 0,
+    gasPrice: "— Gwei",
+    blockNumber: 0,
+    isTestnet: true,
+  });
+
+  useEffect(() => {
+    const fetchInfo = async () => {
+      try {
+        const info = await getNetworkInfo();
+        setNetworkInfo(info);
+      } catch {
+        // keep defaults
+      }
+    };
+
+    fetchInfo();
+    const interval = setInterval(fetchInfo, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const activeNetworkName = useMemo(() => {
+    if (wallet.connected && wallet.chainName) return wallet.chainName;
+    return networkInfo.name;
+  }, [wallet.connected, wallet.chainName, networkInfo.name]);
 
   return (
     <footer className="border-t border-gray-200 bg-white dark:border-gray-800 dark:bg-[#0a0a0a]">
@@ -148,9 +181,13 @@ export function Footer() {
           </p>
           <div className="flex items-center gap-2 font-mono text-xs text-gray-400">
             <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-            <span>Network: Hardhat Local</span>
+            <span>Network: {activeNetworkName}</span>
             <span className="text-gray-300 dark:text-gray-600">|</span>
-            <span>Block #18,742,400</span>
+            <span>
+              {networkInfo.blockNumber > 0
+                ? `Block #${networkInfo.blockNumber.toLocaleString()}`
+                : "Block #—"}
+            </span>
           </div>
         </div>
       </div>
