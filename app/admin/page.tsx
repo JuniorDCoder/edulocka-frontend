@@ -705,12 +705,13 @@ export default function AdminPage() {
                 );
               }
 
-              const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+              const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+              const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
 
               const openDocument = async (url: string, fileName: string, mode: "view" | "download") => {
                 if (!auth) return;
                 try {
-                  const res = await fetch(`${API_BASE}${url}`, {
+                  const res = await fetch(`${API_BASE}/${url.replace(/^\/+/, "")}`, {
                     headers: {
                       "x-wallet-address": auth.address,
                       "x-wallet-signature": auth.signature,

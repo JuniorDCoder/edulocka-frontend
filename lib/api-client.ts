@@ -3,7 +3,13 @@
 // ============================================================================
 // All calls go to http://localhost:4000/api
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+
+function buildApiUrl(path: string): string {
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE}/${path.replace(/^\/+/, "")}`;
+}
 
 // ── Generic fetcher ─────────────────────────────────────────────────────────
 
@@ -11,7 +17,7 @@ async function apiFetch<T>(
   endpoint: string,
   options?: RequestInit
 ): Promise<T> {
-  const url = `${API_BASE}${endpoint}`;
+  const url = buildApiUrl(endpoint);
   const res = await fetch(url, {
     ...options,
     headers: {
@@ -250,7 +256,7 @@ export async function previewTemplate(
   if (wallet) {
     Object.assign(headers, await getWalletAuthHeaders(wallet));
   }
-  const res = await fetch(`${API_BASE}/api/templates/preview`, {
+  const res = await fetch(buildApiUrl("/api/templates/preview"), {
     method: "POST",
     headers,
     body: JSON.stringify({ templateName, sampleData }),
@@ -293,12 +299,12 @@ export async function getQRCodeDataUrl(
 /** Generate/download PDF for a certificate */
 export function getCertificatePdfUrl(certId: string, template?: string): string {
   const params = template ? `?template=${template}` : "";
-  return `${API_BASE}/api/certificates/${certId}/pdf${params}`;
+  return buildApiUrl(`/api/certificates/${certId}/pdf${params}`);
 }
 
 /** Get generated file URL */
 export function getOutputUrl(path: string): string {
-  return `${API_BASE}${path}`;
+  return buildApiUrl(path);
 }
 
 /** Send certificate email */
