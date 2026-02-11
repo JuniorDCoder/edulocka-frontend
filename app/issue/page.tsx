@@ -71,11 +71,11 @@ export default function IssuePage() {
     gasUsed: number;
   } | null>(null);
   const [networkInfo, setNetworkInfo] = useState({
-    name: "Hardhat Local",
+    name: "Connecting...",
     isTestnet: true,
-    gasPrice: "1.0 Gwei",
+    gasPrice: "— Gwei",
     blockNumber: 0,
-    chainId: 31337,
+    chainId: 0,
   });
   const [isAuthorized, setIsAuthorized] = useState<boolean | null>(null);
   const [institutionName, setInstitutionName] = useState<string | null>(null);
@@ -120,7 +120,7 @@ export default function IssuePage() {
     };
 
     fetchInfo();
-    const interval = setInterval(fetchInfo, 10000);
+    const interval = setInterval(fetchInfo, 60000);
     return () => clearInterval(interval);
   }, [wallet.connected, wallet.address]);
 

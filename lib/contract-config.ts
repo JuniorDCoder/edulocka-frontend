@@ -2,10 +2,40 @@
 // Contract Configuration — ABI + Address for the deployed CertificateRegistry
 // ============================================================================
 
-export const CONTRACT_ADDRESS = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+// ── Network Configuration ────────────────────────────────────────────────────
+// Toggle between local dev and Sepolia testnet via NEXT_PUBLIC_NETWORK env var.
+// Default: "sepolia" for production, "local" for local development.
+const ACTIVE_NETWORK = process.env.NEXT_PUBLIC_NETWORK || "sepolia";
 
-export const HARDHAT_CHAIN_ID = 31337;
-export const HARDHAT_RPC_URL = "http://127.0.0.1:8545";
+// Contract addresses per network (update SEPOLIA address after deployment)
+const ADDRESSES: Record<string, string> = {
+  local: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  sepolia: process.env.NEXT_PUBLIC_CONTRACT_ADDRESS || "0x0000000000000000000000000000000000000000",
+};
+
+const RPC_URLS: Record<string, string> = {
+  local: "http://127.0.0.1:8545",
+  sepolia: process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || "https://sepolia.infura.io/v3/YOUR-KEY",
+};
+
+const CHAIN_IDS: Record<string, number> = {
+  local: 31337,
+  sepolia: 11155111,
+};
+
+export const CONTRACT_ADDRESS = ADDRESSES[ACTIVE_NETWORK] || ADDRESSES.sepolia;
+export const RPC_URL = RPC_URLS[ACTIVE_NETWORK] || RPC_URLS.sepolia;
+export const TARGET_CHAIN_ID = CHAIN_IDS[ACTIVE_NETWORK] || CHAIN_IDS.sepolia;
+
+// Keep legacy exports for backward compatibility
+export const HARDHAT_CHAIN_ID = TARGET_CHAIN_ID;
+export const HARDHAT_RPC_URL = RPC_URL;
+
+// Etherscan base URL for the active network
+export const ETHERSCAN_BASE_URL =
+  ACTIVE_NETWORK === "local" ? "" : "https://sepolia.etherscan.io";
+
+export const IS_LOCAL = ACTIVE_NETWORK === "local";
 
 // Minimal ABI — only the functions/events we use from the frontend
 export const CONTRACT_ABI = [

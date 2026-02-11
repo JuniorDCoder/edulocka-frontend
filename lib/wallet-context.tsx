@@ -10,7 +10,7 @@ import {
 } from "react";
 import { ethers } from "ethers";
 import { WalletState } from "./types";
-import { HARDHAT_CHAIN_ID } from "./contract-config";
+import { TARGET_CHAIN_ID, RPC_URL, IS_LOCAL } from "./contract-config";
 
 interface WalletContextType {
   wallet: WalletState;
@@ -68,32 +68,39 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Ensure user is on Hardhat local network, prompt switch if not
-  const switchToHardhat = useCallback(async () => {
+  // Ensure user is on the correct network (Sepolia or Hardhat local)
+  const switchToTargetNetwork = useCallback(async () => {
     if (!window.ethereum) return;
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: `0x${HARDHAT_CHAIN_ID.toString(16)}` }],
+        params: [{ chainId: `0x${TARGET_CHAIN_ID.toString(16)}` }],
       });
     } catch (switchError: unknown) {
       // Chain not added yet — add it
       const err = switchError as { code?: number };
       if (err.code === 4902) {
+        const chainParams = IS_LOCAL
+          ? {
+              chainId: `0x${TARGET_CHAIN_ID.toString(16)}`,
+              chainName: "Hardhat Local",
+              nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
+              rpcUrls: ["http://127.0.0.1:8545"],
+            }
+          : {
+              chainId: `0x${TARGET_CHAIN_ID.toString(16)}`,
+              chainName: "Sepolia Testnet",
+              nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
+              rpcUrls: [RPC_URL],
+              blockExplorerUrls: ["https://sepolia.etherscan.io"],
+            };
         try {
           await window.ethereum.request({
             method: "wallet_addEthereumChain",
-            params: [
-              {
-                chainId: `0x${HARDHAT_CHAIN_ID.toString(16)}`,
-                chainName: "Hardhat Local",
-                nativeCurrency: { name: "ETH", symbol: "ETH", decimals: 18 },
-                rpcUrls: ["http://127.0.0.1:8545"],
-              },
-            ],
+            params: [chainParams],
           });
         } catch (addError) {
-          console.error("Failed to add Hardhat chain:", addError);
+          console.error("Failed to add network chain:", addError);
         }
       }
     }
@@ -114,15 +121,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       if (accounts.length === 0) return;
 
-      // Switch to Hardhat local network
-      await switchToHardhat();
+      // Switch to target network (Sepolia or Hardhat local)
+      await switchToTargetNetwork();
 
       // Update wallet state
       await updateWalletInfo(accounts[0]);
     } catch (err) {
       console.error("Failed to connect wallet:", err);
     }
-  }, [switchToHardhat, updateWalletInfo]);
+  }, [switchToTargetNetwork, updateWalletInfo]);
 
   // Disconnect wallet (client-side only — MetaMask stays connected)
   const disconnect = useCallback(() => {

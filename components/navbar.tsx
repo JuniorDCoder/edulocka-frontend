@@ -25,9 +25,9 @@ export function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [networkInfo, setNetworkInfo] = useState({
-    name: "Hardhat Local",
-    chainId: 31337,
-    gasPrice: "1.0 Gwei",
+    name: "Connecting...",
+    chainId: 0,
+    gasPrice: "— Gwei",
     blockNumber: 0,
     isTestnet: true,
   });
@@ -42,7 +42,7 @@ export function Navbar() {
       }
     };
     fetchInfo();
-    const interval = setInterval(fetchInfo, 15000);
+    const interval = setInterval(fetchInfo, 60000);
     return () => clearInterval(interval);
   }, []);
 

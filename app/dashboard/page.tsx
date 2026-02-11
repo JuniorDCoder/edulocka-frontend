@@ -38,7 +38,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ total: 0, institutions: 0, revocations: 0 });
   const [networkInfo, setNetworkInfo] = useState({
-    name: "Hardhat Local", chainId: 31337, gasPrice: "1.0 Gwei", blockNumber: 0, isTestnet: true,
+    name: "Connecting...", chainId: 0, gasPrice: "— Gwei", blockNumber: 0, isTestnet: true,
   });
   const [recentActivity, setRecentActivity] = useState<
     { type: "issued" | "revoked"; certId: string; institution: string; timestamp: string; blockNumber: number }[]
@@ -51,7 +51,7 @@ export default function DashboardPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [certs, total, institutions, revocations, info, activity] = await Promise.all([
+        const [certs, total, institutions, revocations, info, activity] = await Promise.allSettled([
           getAllCertificates(),
           getTotalCertificates(),
           getTotalInstitutions(),
@@ -59,10 +59,28 @@ export default function DashboardPage() {
           getNetworkInfo(),
           getRecentActivity(5),
         ]);
-        setCertificates(certs);
-        setStats({ total, institutions, revocations });
-        setNetworkInfo(info);
-        setRecentActivity(activity);
+
+        if (
+          certs.status === "rejected" ||
+          total.status === "rejected" ||
+          institutions.status === "rejected" ||
+          revocations.status === "rejected" ||
+          info.status === "rejected" ||
+          activity.status === "rejected"
+        ) {
+          console.warn("Dashboard fetch partially failed due to RPC throttling.");
+        }
+
+        setCertificates(certs.status === "fulfilled" ? certs.value : []);
+        setStats({
+          total: total.status === "fulfilled" ? total.value : 0,
+          institutions: institutions.status === "fulfilled" ? institutions.value : 0,
+          revocations: revocations.status === "fulfilled" ? revocations.value : 0,
+        });
+        if (info.status === "fulfilled") {
+          setNetworkInfo(info.value);
+        }
+        setRecentActivity(activity.status === "fulfilled" ? activity.value : []);
       } catch (err) {
         console.error("Failed to fetch dashboard data:", err);
       }
@@ -70,7 +88,7 @@ export default function DashboardPage() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 15000);
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
   }, [wallet.connected]);
 

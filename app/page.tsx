@@ -144,18 +144,29 @@ export default function Home() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [certs, total, inst, activity, info] = await Promise.all([
+        const [certs, total, inst, activity, info] = await Promise.allSettled([
           getAllCertificates(),
           getTotalCertificates(),
           getTotalInstitutions(),
           getRecentActivity(5),
           getNetworkInfo(),
         ]);
-        setCertificates(certs);
-        setTotalCerts(total);
-        setTotalInstitutions(inst);
-        setRecentActivity(activity);
-        setBlockNumber(info.blockNumber);
+
+        if (
+          certs.status === "rejected" ||
+          total.status === "rejected" ||
+          inst.status === "rejected" ||
+          activity.status === "rejected" ||
+          info.status === "rejected"
+        ) {
+          console.warn("Landing page fetch partially failed due to RPC throttling.");
+        }
+
+        setCertificates(certs.status === "fulfilled" ? certs.value : []);
+        setTotalCerts(total.status === "fulfilled" ? total.value : 0);
+        setTotalInstitutions(inst.status === "fulfilled" ? inst.value : 0);
+        setRecentActivity(activity.status === "fulfilled" ? activity.value : []);
+        setBlockNumber(info.status === "fulfilled" ? info.value.blockNumber : 0);
       } catch (err) {
         console.error("Failed to fetch landing page data:", err);
       }
@@ -163,7 +174,7 @@ export default function Home() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 20000);
+    const interval = setInterval(fetchData, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -185,7 +196,7 @@ export default function Home() {
                   <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
                 </span>
                 <span className="text-green-700 dark:text-green-400">
-                  Live on Hardhat Local
+                  Live on Sepolia Testnet
                 </span>
                 <span className="text-green-500/50">|</span>
                 <span className="text-green-600 dark:text-green-500">

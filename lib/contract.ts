@@ -3,15 +3,71 @@
 // ============================================================================
 
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS, CONTRACT_ABI, HARDHAT_RPC_URL } from "./contract-config";
+import { CONTRACT_ADDRESS, CONTRACT_ABI, RPC_URL, TARGET_CHAIN_ID } from "./contract-config";
 import { Certificate } from "./types";
 import type { InstitutionInfo } from "./types";
 
 // ── Provider / Signer helpers ──────────────────────────────────────────────
 
+// Singleton provider — reuse one connection instead of creating a new one per call
+let _cachedProvider: ethers.JsonRpcProvider | null = null;
+
+const RATE_LIMIT_RETRY_DELAYS_MS = [400, 1000, 1800] as const;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRateLimitedError(err: unknown): boolean {
+  if (!err) return false;
+
+  const maybeErr = err as {
+    code?: number | string;
+    message?: string;
+    info?: { error?: { code?: number | string; message?: string } };
+  };
+
+  const message =
+    maybeErr.message?.toLowerCase() ??
+    maybeErr.info?.error?.message?.toLowerCase() ??
+    "";
+
+  const code = String(maybeErr.code ?? maybeErr.info?.error?.code ?? "");
+
+  return (
+    message.includes("too many requests") ||
+    message.includes("rate limit") ||
+    message.includes("429") ||
+    message.includes("-32005") ||
+    code === "429" ||
+    code === "-32005"
+  );
+}
+
+async function withRpcRateLimitRetry<T>(operation: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await operation();
+    } catch (err) {
+      const canRetry = attempt < RATE_LIMIT_RETRY_DELAYS_MS.length && isRateLimitedError(err);
+      if (!canRetry) throw err;
+      await sleep(RATE_LIMIT_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+
+  throw new Error("RPC retry exhausted");
+}
+
 /** Get a read-only provider (for view functions — no wallet needed) */
 export function getReadProvider(): ethers.JsonRpcProvider {
-  return new ethers.JsonRpcProvider(HARDHAT_RPC_URL);
+  if (!_cachedProvider) {
+    _cachedProvider = new ethers.JsonRpcProvider(RPC_URL, undefined, {
+      staticNetwork: true,       // Don't call eth_chainId on every request
+      // Keep requests unbatched so a single throttled RPC call doesn't break the whole batch.
+      batchMaxCount: 1,
+    });
+  }
+  return _cachedProvider;
 }
 
 /** Get a BrowserProvider from MetaMask (for write functions — needs wallet) */
@@ -39,21 +95,21 @@ export async function getWriteContract(): Promise<ethers.Contract> {
 /** Get total number of certificates issued */
 export async function getTotalCertificates(): Promise<number> {
   const contract = getReadContract();
-  const total = await contract.getTotalCertificates();
+  const total = await withRpcRateLimitRetry(() => contract.getTotalCertificates());
   return Number(total);
 }
 
 /** Get total number of authorized institutions */
 export async function getTotalInstitutions(): Promise<number> {
   const contract = getReadContract();
-  const total = await contract.totalInstitutions();
+  const total = await withRpcRateLimitRetry(() => contract.totalInstitutions());
   return Number(total);
 }
 
 /** Get total number of revoked certificates */
 export async function getTotalRevocations(): Promise<number> {
   const contract = getReadContract();
-  const total = await contract.totalRevocations();
+  const total = await withRpcRateLimitRetry(() => contract.totalRevocations());
   return Number(total);
 }
 
@@ -215,24 +271,46 @@ export async function getAllCertificates(): Promise<Certificate[]> {
   }
 }
 
-/** Get network info from the provider */
+// ── Cached network info (avoids repeated RPC calls) ─────────────────────────
+let _networkInfoCache: {
+  data: Awaited<ReturnType<typeof _fetchNetworkInfo>>;
+  timestamp: number;
+} | null = null;
+const NETWORK_CACHE_TTL = 30_000; // 30 seconds
+
+async function _fetchNetworkInfo() {
+  const provider = getReadProvider();
+  const [block, feeData] = await Promise.all([
+    withRpcRateLimitRetry(() => provider.getBlockNumber()),
+    withRpcRateLimitRetry(() => provider.getFeeData()),
+  ]);
+  const gasPrice = feeData.gasPrice
+    ? `${(Number(feeData.gasPrice) / 1e9).toFixed(1)} Gwei`
+    : "N/A";
+
+  return {
+    name: TARGET_CHAIN_ID === 31337
+      ? "Hardhat Local"
+      : TARGET_CHAIN_ID === 11155111
+        ? "Sepolia Testnet"
+        : `Chain ${TARGET_CHAIN_ID}`,
+    chainId: TARGET_CHAIN_ID,
+    gasPrice,
+    blockNumber: block,
+    isTestnet: true,
+  };
+}
+
+/** Get network info from the provider (cached for 30s) */
 export async function getNetworkInfo() {
   try {
-    const provider = getReadProvider();
-    const network = await provider.getNetwork();
-    const block = await provider.getBlockNumber();
-    const feeData = await provider.getFeeData();
-    const gasPrice = feeData.gasPrice
-      ? `${(Number(feeData.gasPrice) / 1e9).toFixed(1)} Gwei`
-      : "N/A";
-
-    return {
-      name: Number(network.chainId) === 31337 ? "Hardhat Local" : network.name,
-      chainId: Number(network.chainId),
-      gasPrice,
-      blockNumber: block,
-      isTestnet: true,
-    };
+    const now = Date.now();
+    if (_networkInfoCache && now - _networkInfoCache.timestamp < NETWORK_CACHE_TTL) {
+      return _networkInfoCache.data;
+    }
+    const data = await _fetchNetworkInfo();
+    _networkInfoCache = { data, timestamp: now };
+    return data;
   } catch {
     return {
       name: "Disconnected",
