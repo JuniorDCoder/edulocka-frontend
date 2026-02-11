@@ -4,8 +4,11 @@ import { Suspense, useState, useEffect, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { getCertificateById, getCertificateByTxHash, getCertificatesByWallet } from "@/lib/contract";
-import { verifyCertificateViaBackend, getCertificatePdfUrl, getQRCodeDataUrl } from "@/lib/api-client";
-import { truncateHash, truncateAddress } from "@/lib/mock-data";
+import {
+  getCertificatePdfUrl,
+  verifyCertificateDocumentFile,
+  type DocumentVerificationResult,
+} from "@/lib/api-client";
 import { Certificate } from "@/lib/types";
 import { HashDisplay } from "@/components/hash-display";
 import { InstitutionBadge } from "@/components/institution-badge";
@@ -22,6 +25,7 @@ import {
   Blocks,
   Wallet,
   Download,
+  Upload,
 } from "lucide-react";
 
 function VerifyPageContent() {
@@ -33,6 +37,11 @@ function VerifyPageContent() {
   const [result, setResult] = useState<Certificate | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [documentFile, setDocumentFile] = useState<File | null>(null);
+  const [documentCertId, setDocumentCertId] = useState(initialCertId);
+  const [isVerifyingDocument, setIsVerifyingDocument] = useState(false);
+  const [documentVerifyResult, setDocumentVerifyResult] = useState<DocumentVerificationResult | null>(null);
+  const [documentVerifyError, setDocumentVerifyError] = useState<string | null>(null);
   const lastAutoSearchRef = useRef<string | null>(null);
 
   const doSearch = useCallback(async (query: string, type: "cert" | "tx" | "wallet") => {
@@ -96,6 +105,32 @@ function VerifyPageContent() {
     await doSearch(searchQuery, searchType);
   };
 
+  const handleDocumentVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDocumentVerifyError(null);
+    setDocumentVerifyResult(null);
+
+    if (!documentFile) {
+      setDocumentVerifyError("Please upload a PDF certificate document.");
+      return;
+    }
+
+    const certId = (documentCertId.trim() || result?.certId || "").trim();
+    if (!certId) {
+      setDocumentVerifyError("Enter a Certificate ID or search/load a certificate first.");
+      return;
+    }
+
+    setIsVerifyingDocument(true);
+    try {
+      const verification = await verifyCertificateDocumentFile(certId, documentFile);
+      setDocumentVerifyResult(verification);
+    } catch (err) {
+      setDocumentVerifyError(err instanceof Error ? err.message : "File verification failed");
+    }
+    setIsVerifyingDocument(false);
+  };
+
   const searchTabs = [
     { id: "cert" as const, label: "Certificate ID", icon: FileText, placeholder: "CERT-2026-001" },
     { id: "tx" as const, label: "Tx Hash", icon: Hash, placeholder: "0x8a3f7b2c..." },
@@ -111,7 +146,7 @@ function VerifyPageContent() {
             Verify Certificate
           </h1>
           <p className="mt-2 text-gray-500 dark:text-gray-400">
-            Search by certificate ID to verify on-chain
+            Verify by certificate ID / tx hash / wallet, then optionally prove the uploaded PDF matches on-chain IPFS content.
           </p>
         </div>
 
@@ -169,6 +204,85 @@ function VerifyPageContent() {
             <span className="text-xs text-gray-400">Try issuing a certificate first, then search by its ID here</span>
           </div>
         </div>
+
+        {/* Document Hash Verification */}
+        <div className="mx-auto mt-6 max-w-2xl rounded-none border-2 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-gray-900 dark:text-white">
+            Verify by Uploaded PDF (SHA-256 vs On-Chain IPFS File)
+          </h3>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            Upload a certificate PDF and we hash it, fetch the IPFS file referenced on-chain, hash that too, and compare.
+          </p>
+
+          <form onSubmit={handleDocumentVerify} className="mt-3 space-y-3">
+            <input
+              type="text"
+              value={documentCertId}
+              onChange={(e) => setDocumentCertId(e.target.value)}
+              placeholder={result?.certId ? `Leave blank to use loaded cert: ${result.certId}` : "Certificate ID (e.g. CERT-2026-001)"}
+              className="w-full rounded-none border-2 border-gray-200 bg-gray-50 px-3 py-2.5 font-mono text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 dark:focus:border-blue-500"
+            />
+            <div className="rounded-none border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                onChange={(e) => setDocumentFile(e.target.files?.[0] || null)}
+                className="block w-full text-xs text-gray-600 file:mr-3 file:rounded-none file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:bg-blue-700 dark:text-gray-300 dark:file:bg-blue-500 dark:hover:file:bg-blue-400"
+              />
+              {documentFile && (
+                <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                  Selected: <span className="font-mono">{documentFile.name}</span> ({(documentFile.size / 1024).toFixed(1)} KB)
+                </p>
+              )}
+            </div>
+            <button
+              type="submit"
+              disabled={isVerifyingDocument}
+              className="flex items-center gap-2 rounded-none border-2 border-blue-600 bg-blue-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500"
+            >
+              {isVerifyingDocument ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="h-4 w-4" />
+              )}
+              Compare File Hash
+            </button>
+          </form>
+        </div>
+
+        {documentVerifyError && (
+          <div className="mx-auto mt-4 max-w-2xl rounded-none border-2 border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/20">
+            <p className="text-xs text-red-700 dark:text-red-400">{documentVerifyError}</p>
+          </div>
+        )}
+
+        {documentVerifyResult && (
+          <div className="mx-auto mt-4 max-w-2xl rounded-none border-2 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+            <div className="flex items-start gap-3">
+              {documentVerifyResult.match.sha256 ? (
+                <CheckCircle className="mt-0.5 h-5 w-5 text-green-500" />
+              ) : (
+                <XCircle className="mt-0.5 h-5 w-5 text-red-500" />
+              )}
+              <div>
+                <h4 className={`text-sm font-bold ${
+                  documentVerifyResult.match.sha256
+                    ? "text-green-700 dark:text-green-400"
+                    : "text-red-700 dark:text-red-400"
+                }`}>
+                  {documentVerifyResult.match.sha256 ? "Document Match Confirmed" : "Document Does Not Match On-Chain Record"}
+                </h4>
+                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  Certificate {documentVerifyResult.certId} | IPFS hash {documentVerifyResult.ipfs.hash.slice(0, 12)}...
+                </p>
+              </div>
+            </div>
+            <div className="mt-3 space-y-1.5">
+              <HashDisplay hash={documentVerifyResult.uploaded.sha256} label="Uploaded SHA-256" truncate={false} className="text-[11px]" />
+              <HashDisplay hash={documentVerifyResult.ipfs.sha256} label="IPFS SHA-256" truncate={false} className="text-[11px]" />
+            </div>
+          </div>
+        )}
 
         {/* Loading State */}
         {isSearching && (

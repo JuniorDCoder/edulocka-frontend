@@ -157,7 +157,7 @@ export interface SingleIssueResult {
   success: boolean;
   certId: string;
   blockchain: { txHash: string; blockNumber: number; gasUsed: number };
-  ipfs: { hash: string; pinned: boolean; gateway: string | null };
+  ipfs: { hash: string; documentHash?: string; pinned: boolean; gateway: string | null };
   pdf: { fileName: string; url: string };
   qr: { fileName: string; url: string; dataUrl: string };
   verifyUrl: string;
@@ -177,6 +177,38 @@ export interface VerifyResult {
   verifyUrl?: string;
   qrDataUrl?: string;
   message?: string;
+}
+
+export interface DocumentVerificationResult {
+  exists: boolean;
+  certId: string;
+  certificate: {
+    isValid: boolean;
+    studentName: string;
+    degree: string;
+    institution: string;
+    issueDate: number;
+    issuer: string;
+    ipfsHash: string;
+  };
+  uploaded: {
+    fileName: string;
+    mimeType: string;
+    size: number;
+    sha256: string;
+  };
+  ipfs: {
+    hash: string;
+    gatewayUrl: string;
+    size: number;
+    sha256: string;
+  };
+  match: {
+    sha256: boolean;
+    exactBytes: boolean;
+  };
+  verified: boolean;
+  verifyUrl: string;
 }
 
 // ── Bulk Issuance ───────────────────────────────────────────────────────────
@@ -287,6 +319,20 @@ export async function verifyCertificateViaBackend(
   certId: string
 ): Promise<VerifyResult> {
   return apiFetch(`/api/certificates/verify/${certId}`);
+}
+
+/** Verify an uploaded certificate document by hashing and comparing with on-chain IPFS file */
+export async function verifyCertificateDocumentFile(
+  certId: string,
+  file: File
+): Promise<DocumentVerificationResult> {
+  const formData = new FormData();
+  formData.append("certId", certId);
+  formData.append("document", file);
+  return apiFetch<DocumentVerificationResult>("/api/certificates/verify-file", {
+    method: "POST",
+    body: formData,
+  });
 }
 
 /** Get QR code data URL for a cert */

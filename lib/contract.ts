@@ -432,6 +432,7 @@ export async function generateCertificateId(): Promise<string> {
 /** Upload a file to IPFS via our API route */
 export async function uploadToIPFS(file: File): Promise<{
   ipfsHash: string;
+  documentHash?: string;
   pinned: boolean;
   gateway?: string;
   message?: string;

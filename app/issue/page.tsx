@@ -41,7 +41,6 @@ import {
   Monitor,
   Mail,
   FileText,
-  QrCode,
   Download,
 } from "lucide-react";
 
@@ -57,6 +56,7 @@ export default function IssuePage() {
     certId: "",
   });
   const [ipfsHash, setIpfsHash] = useState("");
+  const [documentHash, setDocumentHash] = useState("");
   const [ipfsPinned, setIpfsPinned] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; size: number } | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -89,6 +89,7 @@ export default function IssuePage() {
   const [backendResult, setBackendResult] = useState<{
     certId: string;
     ipfsHash: string;
+    documentHash?: string;
     txHash: string;
     pdfUrl?: string;
     qrDataUrl?: string;
@@ -195,6 +196,7 @@ export default function IssuePage() {
     try {
       const result = await uploadToIPFS(file);
       setIpfsHash(result.ipfsHash);
+      setDocumentHash(result.documentHash || "");
       setIpfsPinned(result.pinned);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Upload failed";
@@ -207,6 +209,7 @@ export default function IssuePage() {
 
   const handleRemoveFile = () => {
     setIpfsHash("");
+    setDocumentHash("");
     setIpfsPinned(false);
     setUploadedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -372,6 +375,7 @@ export default function IssuePage() {
       setBackendResult({
         certId: result.certId,
         ipfsHash: result.ipfs.hash,
+        documentHash: result.ipfs.documentHash,
         txHash: result.blockchain.txHash,
         pdfUrl: getCertificatePdfUrl(result.certId),
         qrDataUrl,
@@ -560,6 +564,9 @@ export default function IssuePage() {
                       <span className="font-mono">TX: {backendResult.txHash.slice(0, 10)}...{backendResult.txHash.slice(-8)}</span>
                       {backendResult.ipfsHash && (
                         <><span className="text-green-300 dark:text-green-700">•</span><span className="font-mono">IPFS: {backendResult.ipfsHash.slice(0, 12)}...</span></>
+                      )}
+                      {backendResult.documentHash && (
+                        <><span className="text-green-300 dark:text-green-700">•</span><span className="font-mono">SHA-256: {backendResult.documentHash.slice(0, 12)}...</span></>
                       )}
                     </div>
                   )}
@@ -796,6 +803,9 @@ export default function IssuePage() {
                       {ipfsHash && (
                         <div className="border-t border-green-200 px-4 py-2 dark:border-green-800">
                           <HashDisplay hash={ipfsHash} label="IPFS Hash" truncate={false} />
+                          {documentHash && (
+                            <HashDisplay hash={documentHash} label="Document SHA-256" truncate={false} className="mt-1" />
+                          )}
                         </div>
                       )}
                     </div>

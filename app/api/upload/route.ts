@@ -11,37 +11,29 @@ import { NextRequest, NextResponse } from "next/server";
 export async function POST(request: NextRequest) {
   try {
     const jwt = process.env.PINATA_JWT;
-
-    // ── If Pinata is not configured, fall back to a local content hash ──
-    if (!jwt || jwt === "your_pinata_jwt_token_here") {
-      const formData = await request.formData();
-      const file = formData.get("file") as File | null;
-      if (!file) {
-        return NextResponse.json({ error: "No file provided" }, { status: 400 });
-      }
-
-      // Generate a SHA-256 content hash as a fallback CID
-      const buffer = await file.arrayBuffer();
-      const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-
-      return NextResponse.json({
-        success: true,
-        ipfsHash: "Qm" + hashHex.slice(0, 44),
-        fileName: file.name,
-        fileSize: file.size,
-        pinned: false, // Not actually on IPFS — just a local hash
-        message: "Pinata not configured — using local content hash. Set PINATA_JWT in .env.local for real IPFS.",
-      });
-    }
-
-    // ── Real Pinata upload ─────────────────────────────────────────────
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
 
     if (!file) {
       return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    }
+
+    const fileBuffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", fileBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const documentHash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+
+    // ── If Pinata is not configured, fall back to a local content hash ──
+    if (!jwt || jwt === "your_pinata_jwt_token_here") {
+      return NextResponse.json({
+        success: true,
+        ipfsHash: "Qm" + documentHash.slice(0, 44),
+        documentHash,
+        fileName: file.name,
+        fileSize: file.size,
+        pinned: false, // Not actually on IPFS — just a local hash
+        message: "Pinata not configured — using local content hash. Set PINATA_JWT in .env.local for real IPFS.",
+      });
     }
 
     // Validate file
@@ -63,6 +55,7 @@ export async function POST(request: NextRequest) {
         app: "edulocka",
         type: "certificate-document",
         originalName: file.name,
+        documentHash,
       },
     });
     pinataForm.append("pinataMetadata", metadata);
@@ -93,6 +86,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       ipfsHash: pinataData.IpfsHash,
+      documentHash,
       fileName: file.name,
       fileSize: pinataData.PinSize,
       pinned: true,
