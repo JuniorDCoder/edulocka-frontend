@@ -139,7 +139,7 @@ export default function Home() {
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [blockNumber, setBlockNumber] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [networkName, setNetworkName] = useState("Sepolia Testnet");
 
   useEffect(() => {
     const fetchData = async () => {
@@ -167,10 +167,10 @@ export default function Home() {
         setTotalInstitutions(inst.status === "fulfilled" ? inst.value : 0);
         setRecentActivity(activity.status === "fulfilled" ? activity.value : []);
         setBlockNumber(info.status === "fulfilled" ? info.value.blockNumber : 0);
+        setNetworkName(info.status === "fulfilled" ? info.value.name : "Sepolia Testnet");
       } catch (err) {
         console.error("Failed to fetch landing page data:", err);
       }
-      setLoading(false);
     };
 
     fetchData();
@@ -518,7 +518,14 @@ export default function Home() {
               target={certificates.filter((c) => c.status === "verified").length}
               label="Verifications"
             />
-            <AnimatedCounter target={1} label="Network Nodes" />
+            <div className="text-center">
+              <p className="font-mono text-lg font-bold text-gray-900 dark:text-white md:text-xl">
+                {networkName}
+              </p>
+              <p className="mt-1 text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                Active Network
+              </p>
+            </div>
           </div>
         </div>
       </section>

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { QRCodeSVG } from "qrcode.react";
 import { getCertificateById, getCertificateByTxHash, getCertificatesByWallet } from "@/lib/contract";
 import {
+  ApiError,
   getCertificatePdfUrl,
   verifyCertificateDocumentFile,
   type DocumentVerificationResult,
@@ -26,7 +27,26 @@ import {
   Wallet,
   Download,
   Upload,
+  AlertTriangle,
 } from "lucide-react";
+
+type DocumentVerifyError = {
+  kind: "input" | "not_found" | "no_ipfs_hash" | "ipfs_unreachable" | "generic";
+  title: string;
+  message: string;
+  nextStep: string;
+  certId?: string;
+  uploadedSha256?: string;
+};
+
+type VerifyFileErrorPayload = {
+  certId?: string;
+  message?: string;
+  error?: string;
+  uploaded?: {
+    sha256?: string;
+  };
+};
 
 function VerifyPageContent() {
   const searchParams = useSearchParams();
@@ -41,7 +61,7 @@ function VerifyPageContent() {
   const [documentCertId, setDocumentCertId] = useState(initialCertId);
   const [isVerifyingDocument, setIsVerifyingDocument] = useState(false);
   const [documentVerifyResult, setDocumentVerifyResult] = useState<DocumentVerificationResult | null>(null);
-  const [documentVerifyError, setDocumentVerifyError] = useState<string | null>(null);
+  const [documentVerifyError, setDocumentVerifyError] = useState<DocumentVerifyError | null>(null);
   const lastAutoSearchRef = useRef<string | null>(null);
 
   const doSearch = useCallback(async (query: string, type: "cert" | "tx" | "wallet") => {
@@ -111,13 +131,23 @@ function VerifyPageContent() {
     setDocumentVerifyResult(null);
 
     if (!documentFile) {
-      setDocumentVerifyError("Please upload a PDF certificate document.");
+      setDocumentVerifyError({
+        kind: "input",
+        title: "Upload Needed",
+        message: "Please upload a PDF certificate document first.",
+        nextStep: "Select a PDF file and run verification again.",
+      });
       return;
     }
 
     const certId = (documentCertId.trim() || result?.certId || "").trim();
     if (!certId) {
-      setDocumentVerifyError("Enter a Certificate ID or search/load a certificate first.");
+      setDocumentVerifyError({
+        kind: "input",
+        title: "Certificate ID Required",
+        message: "We need a certificate ID to compare your uploaded document with on-chain records.",
+        nextStep: "Enter a certificate ID manually, or search and load a certificate first.",
+      });
       return;
     }
 
@@ -126,9 +156,68 @@ function VerifyPageContent() {
       const verification = await verifyCertificateDocumentFile(certId, documentFile);
       setDocumentVerifyResult(verification);
     } catch (err) {
-      setDocumentVerifyError(err instanceof Error ? err.message : "File verification failed");
+      if (err instanceof ApiError) {
+        const payload = (typeof err.data === "object" && err.data !== null
+          ? err.data
+          : {}) as VerifyFileErrorPayload;
+        const resolvedCertId = payload.certId || certId;
+        const uploadedSha256 =
+          payload.uploaded && typeof payload.uploaded.sha256 === "string"
+            ? payload.uploaded.sha256
+            : undefined;
+        const baseMessage =
+          payload.message ||
+          payload.error ||
+          err.message ||
+          "The backend could not complete this verification.";
+
+        if (err.status === 404) {
+          setDocumentVerifyError({
+            kind: "not_found",
+            title: "Potential Fake: Certificate ID Not Found On-Chain",
+            message: `Certificate "${resolvedCertId}" does not exist in Edulocka blockchain records. This uploaded document is likely fake, unregistered, or linked to a different ID.`,
+            nextStep: "Ask the issuer for the exact certificate ID or verify using the QR code on the original document.",
+            certId: resolvedCertId,
+          });
+        } else if (err.status === 409) {
+          setDocumentVerifyError({
+            kind: "no_ipfs_hash",
+            title: "Verification Incomplete: No On-Chain File Reference",
+            message: `Certificate "${resolvedCertId}" exists, but it has no IPFS document hash on-chain, so this file cannot be cryptographically compared.`,
+            nextStep: "Contact the issuing institution to re-issue this certificate with file anchoring enabled.",
+            certId: resolvedCertId,
+          });
+        } else if (err.status === 502) {
+          setDocumentVerifyError({
+            kind: "ipfs_unreachable",
+            title: "Verification Inconclusive: Could Not Reach IPFS Source",
+            message: "We found the certificate on-chain, but could not download its reference file from IPFS right now.",
+            nextStep: "Retry in a few minutes or verify again from a stable network.",
+            certId: resolvedCertId,
+            uploadedSha256,
+          });
+        } else {
+          setDocumentVerifyError({
+            kind: "generic",
+            title: "Document Verification Failed",
+            message: baseMessage,
+            nextStep: "Retry the upload. If this keeps failing, check backend logs and gateway connectivity.",
+            certId: resolvedCertId,
+            uploadedSha256,
+          });
+        }
+      } else {
+        setDocumentVerifyError({
+          kind: "generic",
+          title: "Document Verification Failed",
+          message: err instanceof Error ? err.message : "File verification failed",
+          nextStep: "Retry the upload. If this keeps failing, check backend logs and gateway connectivity.",
+          certId,
+        });
+      }
+    } finally {
+      setIsVerifyingDocument(false);
     }
-    setIsVerifyingDocument(false);
   };
 
   const searchTabs = [
@@ -136,6 +225,71 @@ function VerifyPageContent() {
     { id: "tx" as const, label: "Tx Hash", icon: Hash, placeholder: "0x8a3f7b2c..." },
     { id: "wallet" as const, label: "Wallet Address", icon: Wallet, placeholder: "0x742d35Cc..." },
   ];
+
+  const documentVerdict = documentVerifyResult
+    ? documentVerifyResult.verified
+      ? {
+          tone: "success" as const,
+          title: "Authentic: Document Matches On-Chain Record",
+          message:
+            "This uploaded PDF matches the exact file hash anchored in the Edulocka certificate record.",
+          nextStep: "You can trust this certificate as authentic for this certificate ID.",
+        }
+      : documentVerifyResult.match.sha256
+      ? {
+          tone: "warning" as const,
+          title: "Warning: File Matches, But Certificate Is Not Currently Valid",
+          message:
+            "The uploaded file matches the original IPFS document, but the certificate status is not valid right now.",
+          nextStep: "Check the certificate status with the issuer before accepting it.",
+        }
+      : {
+          tone: "danger" as const,
+          title: "Potential Fake or Altered Document",
+          message:
+            "This certificate ID exists on-chain, but the uploaded PDF hash does not match the original file hash stored on IPFS.",
+          nextStep: "Treat this document as suspicious and request the original file from the issuing institution.",
+        }
+    : null;
+
+  const documentVerdictTone = documentVerdict
+    ? documentVerdict.tone === "success"
+      ? {
+          container: "border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/20",
+          title: "text-green-700 dark:text-green-400",
+          icon: CheckCircle,
+          iconClass: "text-green-500",
+        }
+      : documentVerdict.tone === "warning"
+      ? {
+          container: "border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20",
+          title: "text-yellow-800 dark:text-yellow-300",
+          icon: AlertTriangle,
+          iconClass: "text-yellow-500",
+        }
+      : {
+          container: "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/20",
+          title: "text-red-700 dark:text-red-400",
+          icon: XCircle,
+          iconClass: "text-red-500",
+        }
+    : null;
+
+  const documentErrorTone = documentVerifyError
+    ? documentVerifyError.kind === "not_found" || documentVerifyError.kind === "generic"
+      ? {
+          container: "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/20",
+          title: "text-red-700 dark:text-red-400",
+          icon: XCircle,
+          iconClass: "text-red-500",
+        }
+      : {
+          container: "border-yellow-300 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/20",
+          title: "text-yellow-800 dark:text-yellow-300",
+          icon: AlertTriangle,
+          iconClass: "text-yellow-500",
+        }
+    : null;
 
   return (
     <div className="grid-pattern min-h-screen">
@@ -250,36 +404,87 @@ function VerifyPageContent() {
           </form>
         </div>
 
-        {documentVerifyError && (
-          <div className="mx-auto mt-4 max-w-2xl rounded-none border-2 border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/20">
-            <p className="text-xs text-red-700 dark:text-red-400">{documentVerifyError}</p>
+        {documentVerifyError && documentErrorTone && (
+          <div className={`mx-auto mt-4 max-w-2xl rounded-none border-2 p-4 ${documentErrorTone.container}`}>
+            <div className="flex items-start gap-3">
+              <documentErrorTone.icon className={`mt-0.5 h-5 w-5 ${documentErrorTone.iconClass}`} />
+              <div className="min-w-0">
+                <h4 className={`text-sm font-bold ${documentErrorTone.title}`}>{documentVerifyError.title}</h4>
+                <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{documentVerifyError.message}</p>
+                <p className="mt-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+                  Next step: {documentVerifyError.nextStep}
+                </p>
+                {documentVerifyError.certId && (
+                  <p className="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    Certificate ID: <span className="font-mono">{documentVerifyError.certId}</span>
+                  </p>
+                )}
+                {documentVerifyError.uploadedSha256 && (
+                  <details className="mt-2 rounded-none border border-gray-200 bg-white/70 p-2 dark:border-gray-700 dark:bg-gray-900/40">
+                    <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
+                      Advanced Details
+                    </summary>
+                    <div className="mt-2">
+                      <HashDisplay
+                        hash={documentVerifyError.uploadedSha256}
+                        label="Uploaded SHA-256"
+                        truncate={false}
+                        className="text-[11px]"
+                      />
+                    </div>
+                  </details>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
-        {documentVerifyResult && (
-          <div className="mx-auto mt-4 max-w-2xl rounded-none border-2 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
+        {documentVerifyResult && documentVerdict && documentVerdictTone && (
+          <div className={`mx-auto mt-4 max-w-2xl rounded-none border-2 p-4 ${documentVerdictTone.container}`}>
             <div className="flex items-start gap-3">
-              {documentVerifyResult.match.sha256 ? (
-                <CheckCircle className="mt-0.5 h-5 w-5 text-green-500" />
-              ) : (
-                <XCircle className="mt-0.5 h-5 w-5 text-red-500" />
-              )}
-              <div>
-                <h4 className={`text-sm font-bold ${
-                  documentVerifyResult.match.sha256
-                    ? "text-green-700 dark:text-green-400"
-                    : "text-red-700 dark:text-red-400"
-                }`}>
-                  {documentVerifyResult.match.sha256 ? "Document Match Confirmed" : "Document Does Not Match On-Chain Record"}
-                </h4>
-                <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  Certificate {documentVerifyResult.certId} | IPFS hash {documentVerifyResult.ipfs.hash.slice(0, 12)}...
+              <documentVerdictTone.icon className={`mt-0.5 h-5 w-5 ${documentVerdictTone.iconClass}`} />
+              <div className="min-w-0">
+                <h4 className={`text-sm font-bold ${documentVerdictTone.title}`}>{documentVerdict.title}</h4>
+                <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{documentVerdict.message}</p>
+                <p className="mt-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+                  Next step: {documentVerdict.nextStep}
                 </p>
+                <div className="mt-3 grid gap-2 rounded-none border border-gray-200 bg-white/70 p-3 text-[11px] dark:border-gray-700 dark:bg-gray-900/40">
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Certificate ID: <span className="font-mono">{documentVerifyResult.certId}</span>
+                  </p>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    On-chain IPFS file: <span className="font-mono">{documentVerifyResult.ipfs.hash}</span>
+                  </p>
+                  <p className="text-gray-600 dark:text-gray-300">
+                    Hash comparison:{" "}
+                    <span className={`font-semibold ${
+                      documentVerifyResult.match.sha256 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
+                    }`}>
+                      {documentVerifyResult.match.sha256 ? "MATCH" : "MISMATCH"}
+                    </span>
+                  </p>
+                </div>
+                <details className="mt-3 rounded-none border border-gray-200 bg-white/70 p-2 dark:border-gray-700 dark:bg-gray-900/40">
+                  <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
+                    Advanced Technical Details
+                  </summary>
+                  <div className="mt-2 space-y-1.5">
+                    <HashDisplay
+                      hash={documentVerifyResult.uploaded.sha256}
+                      label="Uploaded SHA-256"
+                      truncate={false}
+                      className="text-[11px]"
+                    />
+                    <HashDisplay
+                      hash={documentVerifyResult.ipfs.sha256}
+                      label="IPFS SHA-256"
+                      truncate={false}
+                      className="text-[11px]"
+                    />
+                  </div>
+                </details>
               </div>
-            </div>
-            <div className="mt-3 space-y-1.5">
-              <HashDisplay hash={documentVerifyResult.uploaded.sha256} label="Uploaded SHA-256" truncate={false} className="text-[11px]" />
-              <HashDisplay hash={documentVerifyResult.ipfs.sha256} label="IPFS SHA-256" truncate={false} className="text-[11px]" />
             </div>
           </div>
         )}

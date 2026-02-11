@@ -73,6 +73,7 @@ export function Footer() {
                 { href: "/issue", label: "Issue Certificate" },
                 { href: "/verify", label: "Verify Certificate" },
                 { href: "/dashboard", label: "Dashboard" },
+                { href: "/blogs", label: "Blog" },
               ].map((link) => (
                 <li key={link.href}>
                   <Link
@@ -93,9 +94,9 @@ export function Footer() {
             </h4>
             <ul className="space-y-2">
               {[
-                { href: "#", label: "Documentation" },
-                { href: "#", label: "Smart Contract" },
-                { href: "#", label: "API Reference" },
+                { href: "/about", label: "About Edulocka" },
+                { href: "/faq", label: "FAQ" },
+                { href: "/templates", label: "Template Library" },
               ].map((link) => (
                 <li key={link.label}>
                   <Link

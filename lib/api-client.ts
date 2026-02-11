@@ -11,6 +11,18 @@ function buildApiUrl(path: string): string {
   return `${API_BASE}/${path.replace(/^\/+/, "")}`;
 }
 
+export class ApiError extends Error {
+  status: number;
+  data: unknown;
+
+  constructor(status: number, message: string, data: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.data = data;
+  }
+}
+
 // ── Generic fetcher ─────────────────────────────────────────────────────────
 
 async function apiFetch<T>(
@@ -29,8 +41,25 @@ async function apiFetch<T>(
   });
 
   if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(data.error || `API error ${res.status}`);
+    const contentType = res.headers.get("content-type") || "";
+    let data: unknown = null;
+
+    if (contentType.includes("application/json")) {
+      data = await res.json().catch(() => null);
+    } else {
+      const text = await res.text().catch(() => "");
+      data = text ? { error: text } : null;
+    }
+
+    const message =
+      typeof data === "object" &&
+      data !== null &&
+      "error" in data &&
+      typeof (data as { error?: unknown }).error === "string"
+        ? (data as { error: string }).error
+        : `API error ${res.status}`;
+
+    throw new ApiError(res.status, message, data);
   }
 
   // Handle blob responses (ZIP, PDF)
@@ -583,5 +612,254 @@ export async function adminDeauthorizeInstitution(
     method: "POST",
     headers: adminHeaders(auth.address, auth.signature, auth.message),
     body: JSON.stringify({ reason }),
+  });
+}
+
+export interface BlogAuditLogEntry {
+  id: string;
+  blogId: string | null;
+  blogTitle: string;
+  blogSlug: string;
+  action: "create" | "update" | "submit_review" | "approve" | "reject" | "delete";
+  actorWallet: string;
+  actorRole: "author" | "admin" | "system";
+  note: string;
+  statusBefore: "draft" | "pending_review" | "published" | "rejected" | null;
+  statusAfter: "draft" | "pending_review" | "published" | "rejected" | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+// ── Blog API ────────────────────────────────────────────────────────────────
+
+export type BlogStatus = "draft" | "pending_review" | "published" | "rejected";
+
+export interface BlogPost {
+  id: string;
+  title: string;
+  slug: string;
+  excerpt: string;
+  contentMarkdown?: string;
+  coverImageUrl: string;
+  tags: string[];
+  status: BlogStatus;
+  readTimeMinutes: number;
+  contentHash: string;
+  author: {
+    wallet: string;
+    displayName: string;
+  };
+  moderation?: {
+    reviewNote: string;
+    reviewedBy: string | null;
+    reviewedAt: string | null;
+  };
+  chainAnchor: {
+    chainId: number | null;
+    chainName: string | null;
+    blockNumber: number | null;
+    blockHash: string | null;
+    anchoredAt: string | null;
+    anchorError?: string;
+  } | null;
+  createdAt: string;
+  updatedAt: string;
+  lastEditedAt: string;
+  publishedAt: string | null;
+  permissions: {
+    isOwner: boolean;
+    isAdmin: boolean;
+    canEdit: boolean;
+    canDelete: boolean;
+    canReview: boolean;
+  };
+}
+
+export interface BlogListResponse {
+  blogs: BlogPost[];
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    pages: number;
+  };
+}
+
+export interface AdminBlogListResponse extends BlogListResponse {
+  summary: {
+    pendingReview: number;
+    published: number;
+    drafts: number;
+    rejected: number;
+  };
+}
+
+export interface BlogInput {
+  title: string;
+  excerpt?: string;
+  contentMarkdown: string;
+  coverImageUrl?: string;
+  tags?: string[] | string;
+  authorDisplayName?: string;
+  status?: "draft" | "pending_review";
+}
+
+export async function listBlogs(params?: {
+  search?: string;
+  tag?: string;
+  page?: number;
+  limit?: number;
+}): Promise<BlogListResponse> {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.tag) query.set("tag", params.tag);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch<BlogListResponse>(`/api/blogs${qs}`);
+}
+
+export async function getBlogBySlug(slug: string): Promise<{ blog: BlogPost }> {
+  return apiFetch<{ blog: BlogPost }>(`/api/blogs/${encodeURIComponent(slug)}`);
+}
+
+export async function listMyBlogs(
+  wallet: WalletAuth,
+  params?: { status?: BlogStatus; search?: string; page?: number; limit?: number }
+): Promise<BlogListResponse> {
+  const headers = await getWalletAuthHeaders(wallet);
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch<BlogListResponse>(`/api/blogs/my${qs}`, { headers });
+}
+
+export async function getMyBlogById(wallet: WalletAuth, blogId: string): Promise<{ blog: BlogPost }> {
+  const headers = await getWalletAuthHeaders(wallet);
+  return apiFetch<{ blog: BlogPost }>(`/api/blogs/my/${blogId}`, { headers });
+}
+
+export async function createBlog(wallet: WalletAuth, payload: BlogInput): Promise<{
+  success: boolean;
+  message: string;
+  blog: BlogPost;
+}> {
+  const headers = await getWalletAuthHeaders(wallet);
+  return apiFetch("/api/blogs", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateBlog(
+  wallet: WalletAuth,
+  blogId: string,
+  payload: Partial<BlogInput & { status?: BlogStatus }>
+): Promise<{ success: boolean; message: string; blog: BlogPost }> {
+  const headers = await getWalletAuthHeaders(wallet);
+  return apiFetch(`/api/blogs/${blogId}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteBlog(wallet: WalletAuth, blogId: string): Promise<{ success: boolean; message: string }> {
+  const headers = await getWalletAuthHeaders(wallet);
+  return apiFetch(`/api/blogs/${blogId}`, {
+    method: "DELETE",
+    headers,
+  });
+}
+
+export async function listPendingReviewBlogs(
+  auth: { address: string; signature: string; message: string },
+  params?: { search?: string; page?: number; limit?: number }
+): Promise<BlogListResponse> {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch<BlogListResponse>(`/api/blogs/pending-review${qs}`, {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+export async function reviewBlog(
+  auth: { address: string; signature: string; message: string },
+  blogId: string,
+  action: "approve" | "reject",
+  note?: string
+): Promise<{ success: boolean; message: string; blog: BlogPost }> {
+  return apiFetch(`/api/blogs/${blogId}/review`, {
+    method: "POST",
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+    body: JSON.stringify({ action, note }),
+  });
+}
+
+export async function adminListBlogs(
+  auth: { address: string; signature: string; message: string },
+  params?: { status?: BlogStatus | "all"; search?: string; page?: number; limit?: number }
+): Promise<AdminBlogListResponse> {
+  const query = new URLSearchParams();
+  if (params?.status && params.status !== "all") query.set("status", params.status);
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+
+  return apiFetch<AdminBlogListResponse>(`/api/admin/blogs${qs}`, {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+export async function adminReviewBlog(
+  auth: { address: string; signature: string; message: string },
+  blogId: string,
+  action: "approve" | "reject",
+  note?: string
+): Promise<{ success: boolean; message: string; blog: BlogPost }> {
+  return apiFetch(`/api/admin/blogs/${blogId}/review`, {
+    method: "POST",
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+    body: JSON.stringify({ action, note }),
+  });
+}
+
+export async function adminDeleteBlog(
+  auth: { address: string; signature: string; message: string },
+  blogId: string,
+  reason?: string
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch(`/api/admin/blogs/${blogId}`, {
+    method: "DELETE",
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function adminListBlogLogs(
+  auth: { address: string; signature: string; message: string },
+  params?: { action?: string; actor?: string; blogId?: string; page?: number; limit?: number }
+): Promise<{
+  logs: BlogAuditLogEntry[];
+  pagination: { page: number; limit: number; total: number; pages: number };
+}> {
+  const query = new URLSearchParams();
+  if (params?.action) query.set("action", params.action);
+  if (params?.actor) query.set("actor", params.actor);
+  if (params?.blogId) query.set("blogId", params.blogId);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+
+  return apiFetch(`/api/admin/blog-logs${qs}`, {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
   });
 }
