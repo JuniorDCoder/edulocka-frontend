@@ -5,10 +5,23 @@
 
 const RAW_API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 const API_BASE = RAW_API_BASE.replace(/\/+$/, "");
+const RETRYABLE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+const RETRYABLE_STATUS_CODES = new Set([502, 503, 504]);
+const RETRY_DELAYS_MS = [400, 1200, 2500];
 
 function buildApiUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path;
   return `${API_BASE}/${path.replace(/^\/+/, "")}`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableNetworkError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError") return false;
+  return err instanceof TypeError;
 }
 
 export class ApiError extends Error {
@@ -30,49 +43,76 @@ async function apiFetch<T>(
   options?: RequestInit
 ): Promise<T> {
   const url = buildApiUrl(endpoint);
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      ...(options?.body instanceof FormData
-        ? {} // Let browser set content-type for FormData
-        : { "Content-Type": "application/json" }),
-      ...options?.headers,
-    },
-  });
+  const method = String(options?.method || "GET").toUpperCase();
+  const canRetry = RETRYABLE_METHODS.has(method);
+  const maxAttempts = canRetry ? RETRY_DELAYS_MS.length + 1 : 1;
 
-  if (!res.ok) {
-    const contentType = res.headers.get("content-type") || "";
-    let data: unknown = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          ...(options?.body instanceof FormData
+            ? {} // Let browser set content-type for FormData
+            : { "Content-Type": "application/json" }),
+          ...options?.headers,
+        },
+      });
 
-    if (contentType.includes("application/json")) {
-      data = await res.json().catch(() => null);
-    } else {
-      const text = await res.text().catch(() => "");
-      data = text ? { error: text } : null;
+      if (!res.ok) {
+        const shouldRetry =
+          canRetry &&
+          RETRYABLE_STATUS_CODES.has(res.status) &&
+          attempt < maxAttempts - 1;
+        if (shouldRetry) {
+          await sleep(RETRY_DELAYS_MS[attempt]);
+          continue;
+        }
+
+        const contentType = res.headers.get("content-type") || "";
+        let data: unknown = null;
+
+        if (contentType.includes("application/json")) {
+          data = await res.json().catch(() => null);
+        } else {
+          const text = await res.text().catch(() => "");
+          data = text ? { error: text } : null;
+        }
+
+        const message =
+          typeof data === "object" &&
+          data !== null &&
+          "error" in data &&
+          typeof (data as { error?: unknown }).error === "string"
+            ? (data as { error: string }).error
+            : `API error ${res.status}`;
+
+        throw new ApiError(res.status, message, data);
+      }
+
+      // Handle blob responses (ZIP, PDF)
+      const contentType = res.headers.get("content-type") || "";
+      if (
+        contentType.includes("application/zip") ||
+        contentType.includes("application/pdf") ||
+        contentType.includes("spreadsheetml")
+      ) {
+        return res.blob() as unknown as T;
+      }
+
+      return res.json();
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      const shouldRetry = canRetry && attempt < maxAttempts - 1 && isRetryableNetworkError(err);
+      if (shouldRetry) {
+        await sleep(RETRY_DELAYS_MS[attempt]);
+        continue;
+      }
+      throw err;
     }
-
-    const message =
-      typeof data === "object" &&
-      data !== null &&
-      "error" in data &&
-      typeof (data as { error?: unknown }).error === "string"
-        ? (data as { error: string }).error
-        : `API error ${res.status}`;
-
-    throw new ApiError(res.status, message, data);
   }
 
-  // Handle blob responses (ZIP, PDF)
-  const contentType = res.headers.get("content-type") || "";
-  if (
-    contentType.includes("application/zip") ||
-    contentType.includes("application/pdf") ||
-    contentType.includes("spreadsheetml")
-  ) {
-    return res.blob() as unknown as T;
-  }
-
-  return res.json();
+  throw new Error("Request failed after retries");
 }
 
 // ── Types ───────────────────────────────────────────────────────────────────
