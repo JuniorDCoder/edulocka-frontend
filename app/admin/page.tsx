@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useWallet } from "@/lib/wallet-context";
 import { getContractOwner, getAllInstitutions } from "@/lib/contract";
 import {
+  ApiError,
   adminListApplications,
   adminGetStats,
   adminGetApplication,
@@ -79,6 +80,7 @@ export default function AdminPage() {
   const [checking, setChecking] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [auth, setAuth] = useState<AuthData | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
 
   // Stats
@@ -141,6 +143,15 @@ export default function AdminPage() {
 
   const [copied, setCopied] = useState<string | null>(null);
 
+  const handleUnauthorizedAdminError = useCallback((err: unknown): boolean => {
+    if (err instanceof ApiError && err.status === 401) {
+      setAuth(null);
+      setAuthError("Admin session expired. Sign again to continue.");
+      return true;
+    }
+    return false;
+  }, []);
+
   // Check if wallet is owner
   useEffect(() => {
     (async () => {
@@ -164,6 +175,7 @@ export default function AdminPage() {
   const signAdmin = useCallback(async () => {
     if (!wallet.connected || !window.ethereum) return;
     setSigningIn(true);
+    setAuthError(null);
     try {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
@@ -173,6 +185,7 @@ export default function AdminPage() {
       setAuth({ address: wallet.address, signature, message });
     } catch (err) {
       console.error("Sign failed:", err);
+      setAuthError(err instanceof Error ? err.message : "Failed to sign admin message.");
     } finally {
       setSigningIn(false);
     }
@@ -185,12 +198,16 @@ export default function AdminPage() {
     try {
       const data = await adminGetStats(auth);
       setStats(data);
-    } catch {
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setStats(null);
+        return;
+      }
       setStats(null);
     } finally {
       setLoadingStats(false);
     }
-  }, [auth]);
+  }, [auth, handleUnauthorizedAdminError]);
 
   // Load applications
   const loadApplications = useCallback(async () => {
@@ -203,12 +220,18 @@ export default function AdminPage() {
       const data = await adminListApplications(auth, params as { status?: string; search?: string });
       setApplications(data.applications);
       setTotalApps(data.total);
-    } catch {
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setApplications([]);
+        setTotalApps(0);
+        return;
+      }
       setApplications([]);
+      setTotalApps(0);
     } finally {
       setLoadingApps(false);
     }
-  }, [auth, appFilter, appSearch]);
+  }, [auth, appFilter, appSearch, handleUnauthorizedAdminError]);
 
   // Load institutions
   const loadInstitutions = useCallback(async () => {
@@ -218,12 +241,16 @@ export default function AdminPage() {
       // Get on-chain institutions
       const onChain = await getAllInstitutions();
       setInstitutions(onChain as unknown as Record<string, unknown>[]);
-    } catch {
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setInstitutions([]);
+        return;
+      }
       setInstitutions([]);
     } finally {
       setLoadingInstitutions(false);
     }
-  }, [auth]);
+  }, [auth, handleUnauthorizedAdminError]);
 
   // Load blogs for admin moderation
   const loadBlogs = useCallback(async () => {
@@ -237,7 +264,17 @@ export default function AdminPage() {
       });
       setBlogs(data.blogs);
       setBlogSummary(data.summary);
-    } catch {
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setBlogs([]);
+        setBlogSummary({
+          pendingReview: 0,
+          published: 0,
+          drafts: 0,
+          rejected: 0,
+        });
+        return;
+      }
       setBlogs([]);
       setBlogSummary({
         pendingReview: 0,
@@ -248,7 +285,7 @@ export default function AdminPage() {
     } finally {
       setLoadingBlogs(false);
     }
-  }, [auth, blogFilter, blogSearch]);
+  }, [auth, blogFilter, blogSearch, handleUnauthorizedAdminError]);
 
   // Load blog logs
   const loadBlogLogs = useCallback(async () => {
@@ -257,12 +294,16 @@ export default function AdminPage() {
     try {
       const data = await adminListBlogLogs(auth, { limit: 20 });
       setBlogLogs(data.logs);
-    } catch {
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setBlogLogs([]);
+        return;
+      }
       setBlogLogs([]);
     } finally {
       setLoadingBlogLogs(false);
     }
-  }, [auth]);
+  }, [auth, handleUnauthorizedAdminError]);
 
   // Auto-load data when auth is set
   useEffect(() => {
@@ -296,6 +337,7 @@ export default function AdminPage() {
       loadApplications();
       loadStats();
     } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
       setActionResult({ type: "error", message: err instanceof Error ? err.message : "Approval failed" });
     } finally {
       setActionLoading(null);
@@ -316,6 +358,7 @@ export default function AdminPage() {
       loadApplications();
       loadStats();
     } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
       setActionResult({ type: "error", message: err instanceof Error ? err.message : "Rejection failed" });
     } finally {
       setActionLoading(null);
@@ -340,6 +383,7 @@ export default function AdminPage() {
       loadInstitutions();
       loadStats();
     } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
       setActionResult({ type: "error", message: err instanceof Error ? err.message : "Deauthorization failed" });
     } finally {
       setActionLoading(null);
@@ -373,6 +417,7 @@ export default function AdminPage() {
       setBlogModerationNote("");
       await Promise.all([loadBlogs(), loadBlogLogs()]);
     } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
       setActionResult({ type: "error", message: err instanceof Error ? err.message : "Moderation failed" });
     } finally {
       setActionLoading(null);
@@ -396,6 +441,7 @@ export default function AdminPage() {
       setBlogDeleteConfirm("");
       await Promise.all([loadBlogs(), loadBlogLogs()]);
     } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
       setActionResult({ type: "error", message: err instanceof Error ? err.message : "Delete failed" });
     } finally {
       setActionLoading(null);
@@ -411,12 +457,13 @@ export default function AdminPage() {
       const full = await adminGetApplication(auth, String(app._id));
       setSelectedApp(full);
     } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
       console.error("Failed to load full details:", err);
       // Keep the list data as fallback
     } finally {
       setLoadingDetail(false);
     }
-  }, [auth]);
+  }, [auth, handleUnauthorizedAdminError]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -497,6 +544,9 @@ export default function AdminPage() {
             {signingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
             {signingIn ? "Signing..." : "Sign to Authenticate"}
           </button>
+          {authError && (
+            <p className="mt-3 text-xs text-red-500 dark:text-red-400">{authError}</p>
+          )}
         </div>
       </main>
     );
