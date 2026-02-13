@@ -13,6 +13,7 @@ import type { InstitutionInfo } from "./types";
 let _cachedProvider: ethers.JsonRpcProvider | null = null;
 
 const RATE_LIMIT_RETRY_DELAYS_MS = [400, 1000, 1800] as const;
+const RECENT_CERTIFICATES_CACHE_TTL = 30_000;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,6 +58,14 @@ async function withRpcRateLimitRetry<T>(operation: () => Promise<T>): Promise<T>
 
   throw new Error("RPC retry exhausted");
 }
+
+type RecentCertificatesCacheEntry = {
+  data: Certificate[];
+  timestamp: number;
+};
+
+const _recentCertificatesCache = new Map<number, RecentCertificatesCacheEntry>();
+const _recentCertificatesInFlight = new Map<number, Promise<Certificate[]>>();
 
 /** Get a read-only provider (for view functions — no wallet needed) */
 export function getReadProvider(): ethers.JsonRpcProvider {
@@ -116,19 +125,19 @@ export async function getTotalRevocations(): Promise<number> {
 /** Check if an address is an authorized institution */
 export async function isAuthorizedInstitution(address: string): Promise<boolean> {
   const contract = getReadContract();
-  return await contract.isAuthorizedInstitution(address);
+  return await withRpcRateLimitRetry(() => contract.isAuthorizedInstitution(address));
 }
 
 /** Check if a certificate exists */
 export async function certificateExists(certId: string): Promise<boolean> {
   const contract = getReadContract();
-  return await contract.certificateExistsCheck(certId);
+  return await withRpcRateLimitRetry(() => contract.certificateExistsCheck(certId));
 }
 
 /** Get contract owner address */
 export async function getContractOwner(): Promise<string> {
   const contract = getReadContract();
-  return await contract.owner();
+  return await withRpcRateLimitRetry(() => contract.owner());
 }
 
 /** Get a certificate by ID — returns our frontend Certificate type */
@@ -271,12 +280,86 @@ export async function getAllCertificates(): Promise<Certificate[]> {
   }
 }
 
+/** Get recent certificates without scanning the entire chain state */
+export async function getRecentCertificates(limit: number = 5): Promise<Certificate[]> {
+  const normalizedLimit = Math.max(1, Math.min(25, Math.floor(limit)));
+  const now = Date.now();
+
+  const cached = _recentCertificatesCache.get(normalizedLimit);
+  if (cached && now - cached.timestamp < RECENT_CERTIFICATES_CACHE_TTL) {
+    return cached.data;
+  }
+
+  const inFlight = _recentCertificatesInFlight.get(normalizedLimit);
+  if (inFlight) return inFlight;
+
+  const request = (async () => {
+    try {
+      const contract = getReadContract();
+      const count = Number(
+        await withRpcRateLimitRetry(() => contract.getAllCertificateIdsCount())
+      );
+
+      if (count === 0) {
+        _recentCertificatesCache.set(normalizedLimit, { data: [], timestamp: now });
+        return [];
+      }
+
+      const start = Math.max(0, count - normalizedLimit);
+      const certificates: Certificate[] = [];
+
+      for (let i = count - 1; i >= start; i--) {
+        const certId = await withRpcRateLimitRetry(() => contract.getCertificateIdByIndex(i));
+        const cert = await withRpcRateLimitRetry(() => contract.getCertificate(certId));
+
+        // Query only this certificate event to capture tx hash and block number.
+        const filter = contract.filters.CertificateIssued(certId);
+        const events = await withRpcRateLimitRetry(() => contract.queryFilter(filter));
+        const event = events[0];
+
+        certificates.push({
+          certId: String(certId),
+          txHash: event?.transactionHash ?? "",
+          blockNumber: event?.blockNumber ?? 0,
+          studentName: cert.studentName,
+          studentWallet: cert.issuer,
+          degree: cert.degree,
+          institution: cert.institution,
+          issueDate: new Date(Number(cert.issueDate) * 1000).toISOString().split("T")[0],
+          ipfsHash: cert.ipfsHash,
+          status: cert.isValid ? "verified" : "invalid",
+          gasUsed: 0,
+          networkFee: undefined,
+        });
+      }
+
+      _recentCertificatesCache.set(normalizedLimit, {
+        data: certificates,
+        timestamp: Date.now(),
+      });
+
+      return certificates;
+    } catch {
+      return [];
+    }
+  })();
+
+  _recentCertificatesInFlight.set(normalizedLimit, request);
+
+  try {
+    return await request;
+  } finally {
+    _recentCertificatesInFlight.delete(normalizedLimit);
+  }
+}
+
 // ── Cached network info (avoids repeated RPC calls) ─────────────────────────
 let _networkInfoCache: {
   data: Awaited<ReturnType<typeof _fetchNetworkInfo>>;
   timestamp: number;
 } | null = null;
-const NETWORK_CACHE_TTL = 30_000; // 30 seconds
+let _networkInfoInFlight: Promise<Awaited<ReturnType<typeof _fetchNetworkInfo>>> | null = null;
+const NETWORK_CACHE_TTL = 120_000; // 2 minutes
 
 async function _fetchNetworkInfo() {
   const provider = getReadProvider();
@@ -301,15 +384,20 @@ async function _fetchNetworkInfo() {
   };
 }
 
-/** Get network info from the provider (cached for 30s) */
+/** Get network info from the provider (cached for 2 minutes) */
 export async function getNetworkInfo() {
   try {
     const now = Date.now();
     if (_networkInfoCache && now - _networkInfoCache.timestamp < NETWORK_CACHE_TTL) {
       return _networkInfoCache.data;
     }
-    const data = await _fetchNetworkInfo();
-    _networkInfoCache = { data, timestamp: now };
+
+    if (!_networkInfoInFlight) {
+      _networkInfoInFlight = _fetchNetworkInfo();
+    }
+
+    const data = await _networkInfoInFlight;
+    _networkInfoCache = { data, timestamp: Date.now() };
     return data;
   } catch {
     return {
@@ -319,17 +407,14 @@ export async function getNetworkInfo() {
       blockNumber: 0,
       isTestnet: true,
     };
+  } finally {
+    _networkInfoInFlight = null;
   }
 }
 
 /** Get recent CertificateIssued events */
 export async function getRecentActivity(limit: number = 5) {
   try {
-    const contract = getReadContract();
-    const count = Number(await contract.getAllCertificateIdsCount());
-
-    if (count === 0) return [];
-
     type ActivityItem = {
       type: "issued" | "revoked";
       certId: string;
@@ -338,36 +423,23 @@ export async function getRecentActivity(limit: number = 5) {
       blockNumber: number;
     };
 
-    const activities: ActivityItem[] = [];
-    // Walk backwards from the latest certificate (most recent first)
-    const start = Math.max(0, count - limit);
+    const recentCertificates = await getRecentCertificates(limit);
+    const activities: ActivityItem[] = recentCertificates.map((cert) => {
+      const issueDateSeconds = Math.floor(
+        new Date(`${cert.issueDate}T00:00:00Z`).getTime() / 1000
+      );
+      const timestamp = Number.isFinite(issueDateSeconds)
+        ? formatTimeAgo(issueDateSeconds)
+        : cert.issueDate;
 
-    for (let i = count - 1; i >= start; i--) {
-      const certId: string = await contract.getCertificateIdByIndex(i);
-      const cert = await contract.getCertificate(certId);
-
-      // Get the issuance event for this specific cert
-      const filter = contract.filters.CertificateIssued(certId);
-      const events = await contract.queryFilter(filter);
-      const event = events[0];
-
-      let blockNumber = 0;
-      let timestamp = "Unknown";
-
-      if (event) {
-        blockNumber = event.blockNumber;
-        const block = await event.getBlock();
-        if (block) timestamp = formatTimeAgo(block.timestamp);
-      }
-
-      activities.push({
-        type: cert.isValid ? "issued" : "revoked",
-        certId: String(certId),
-        institution: String(cert.institution),
+      return {
+        type: cert.status === "invalid" ? "revoked" : "issued",
+        certId: cert.certId,
+        institution: cert.institution,
         timestamp,
-        blockNumber,
-      });
-    }
+        blockNumber: cert.blockNumber,
+      };
+    });
 
     return activities;
   } catch {

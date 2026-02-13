@@ -30,8 +30,6 @@ export function Footer() {
     };
 
     fetchInfo();
-    const interval = setInterval(fetchInfo, 60000);
-    return () => clearInterval(interval);
   }, []);
 
   const activeNetworkName = useMemo(() => {

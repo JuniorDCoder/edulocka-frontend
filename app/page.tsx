@@ -30,8 +30,8 @@ import { truncateHash } from "@/lib/mock-data";
 import {
   getTotalCertificates,
   getTotalInstitutions,
-  getRecentActivity,
-  getAllCertificates,
+  getTotalRevocations,
+  getRecentCertificates,
   getNetworkInfo,
 } from "@/lib/contract";
 import { Certificate } from "@/lib/types";
@@ -43,7 +43,7 @@ interface ActivityItem {
   institution: string;
   blockNumber: number;
   timestamp: string;
-  type: "issued" | "verified" | "revoked";
+  type: "issued" | "revoked";
 }
 
 // ── Animated Counter ────────────────────────────────────────────────────────
@@ -135,6 +135,7 @@ function LiveFeed({ activity }: { activity: ActivityItem[] }) {
 
 export default function Home() {
   const [totalCerts, setTotalCerts] = useState(0);
+  const [verifiedCerts, setVerifiedCerts] = useState(0);
   const [totalInstitutions, setTotalInstitutions] = useState(0);
   const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
@@ -144,11 +145,11 @@ export default function Home() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [certs, total, inst, activity, info] = await Promise.allSettled([
-          getAllCertificates(),
+        const [certs, total, inst, revocations, info] = await Promise.allSettled([
+          getRecentCertificates(5),
           getTotalCertificates(),
           getTotalInstitutions(),
-          getRecentActivity(5),
+          getTotalRevocations(),
           getNetworkInfo(),
         ]);
 
@@ -156,16 +157,29 @@ export default function Home() {
           certs.status === "rejected" ||
           total.status === "rejected" ||
           inst.status === "rejected" ||
-          activity.status === "rejected" ||
+          revocations.status === "rejected" ||
           info.status === "rejected"
         ) {
           console.warn("Landing page fetch partially failed due to RPC throttling.");
         }
 
-        setCertificates(certs.status === "fulfilled" ? certs.value : []);
-        setTotalCerts(total.status === "fulfilled" ? total.value : 0);
+        const recentCertificates = certs.status === "fulfilled" ? certs.value : [];
+        const totalIssued = total.status === "fulfilled" ? total.value : 0;
+        const totalRevoked = revocations.status === "fulfilled" ? revocations.value : 0;
+
+        setCertificates(recentCertificates);
+        setTotalCerts(totalIssued);
+        setVerifiedCerts(Math.max(0, totalIssued - totalRevoked));
         setTotalInstitutions(inst.status === "fulfilled" ? inst.value : 0);
-        setRecentActivity(activity.status === "fulfilled" ? activity.value : []);
+        setRecentActivity(
+          recentCertificates.map((cert) => ({
+            certId: cert.certId,
+            institution: cert.institution,
+            blockNumber: cert.blockNumber,
+            timestamp: cert.issueDate,
+            type: cert.status === "invalid" ? "revoked" : "issued",
+          }))
+        );
         setBlockNumber(info.status === "fulfilled" ? info.value.blockNumber : 0);
         setNetworkName(info.status === "fulfilled" ? info.value.name : "Sepolia Testnet");
       } catch (err) {
@@ -174,7 +188,7 @@ export default function Home() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 60000);
+    const interval = setInterval(fetchData, 180000);
     return () => clearInterval(interval);
   }, []);
 
@@ -514,10 +528,7 @@ export default function Home() {
           <div className="grid grid-cols-2 gap-8 md:grid-cols-4">
             <AnimatedCounter target={totalCerts} label="Certificates Issued" />
             <AnimatedCounter target={totalInstitutions} label="Authorized Institutions" />
-            <AnimatedCounter
-              target={certificates.filter((c) => c.status === "verified").length}
-              label="Verifications"
-            />
+            <AnimatedCounter target={verifiedCerts} label="Verifications" />
             <div className="text-center">
               <p className="font-mono text-lg font-bold text-gray-900 dark:text-white md:text-xl">
                 {networkName}

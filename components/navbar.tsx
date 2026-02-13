@@ -68,8 +68,6 @@ export function Navbar() {
       }
     };
     fetchInfo();
-    const interval = setInterval(fetchInfo, 60000);
-    return () => clearInterval(interval);
   }, []);
 
   const isActiveLink = (href: string) =>

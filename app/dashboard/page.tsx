@@ -8,7 +8,6 @@ import { Certificate } from "@/lib/types";
 import {
   getAllCertificates,
   getNetworkInfo,
-  getRecentActivity,
   getTotalCertificates,
   getTotalInstitutions,
   getTotalRevocations,
@@ -51,13 +50,12 @@ export default function DashboardPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const [certs, total, institutions, revocations, info, activity] = await Promise.allSettled([
+        const [certs, total, institutions, revocations, info] = await Promise.allSettled([
           getAllCertificates(),
           getTotalCertificates(),
           getTotalInstitutions(),
           getTotalRevocations(),
           getNetworkInfo(),
-          getRecentActivity(5),
         ]);
 
         if (
@@ -65,13 +63,14 @@ export default function DashboardPage() {
           total.status === "rejected" ||
           institutions.status === "rejected" ||
           revocations.status === "rejected" ||
-          info.status === "rejected" ||
-          activity.status === "rejected"
+          info.status === "rejected"
         ) {
           console.warn("Dashboard fetch partially failed due to RPC throttling.");
         }
 
-        setCertificates(certs.status === "fulfilled" ? certs.value : []);
+        const resolvedCertificates = certs.status === "fulfilled" ? certs.value : [];
+
+        setCertificates(resolvedCertificates);
         setStats({
           total: total.status === "fulfilled" ? total.value : 0,
           institutions: institutions.status === "fulfilled" ? institutions.value : 0,
@@ -80,7 +79,18 @@ export default function DashboardPage() {
         if (info.status === "fulfilled") {
           setNetworkInfo(info.value);
         }
-        setRecentActivity(activity.status === "fulfilled" ? activity.value : []);
+        setRecentActivity(
+          [...resolvedCertificates]
+            .sort((a, b) => b.blockNumber - a.blockNumber)
+            .slice(0, 5)
+            .map((cert) => ({
+              type: cert.status === "invalid" ? "revoked" : "issued",
+              certId: cert.certId,
+              institution: cert.institution,
+              timestamp: cert.issueDate,
+              blockNumber: cert.blockNumber,
+            }))
+        );
       } catch (err) {
         console.error("Failed to fetch dashboard data:", err);
       }
@@ -88,7 +98,7 @@ export default function DashboardPage() {
     };
 
     fetchData();
-    const interval = setInterval(fetchData, 60000);
+    const interval = setInterval(fetchData, 180000);
     return () => clearInterval(interval);
   }, [wallet.connected]);
 
