@@ -63,14 +63,22 @@ function VerifyPageContent() {
   const [documentVerifyResult, setDocumentVerifyResult] = useState<DocumentVerificationResult | null>(null);
   const [documentVerifyError, setDocumentVerifyError] = useState<DocumentVerifyError | null>(null);
   const lastAutoSearchRef = useRef<string | null>(null);
+  const clearSearchOutcome = useCallback(() => {
+    setResult(null);
+    setNotFound(false);
+    setPdfUrl(null);
+  }, []);
+  const clearDocumentOutcome = useCallback(() => {
+    setDocumentVerifyError(null);
+    setDocumentVerifyResult(null);
+  }, []);
 
   const doSearch = useCallback(async (query: string, type: "cert" | "tx" | "wallet") => {
     if (!query.trim()) return;
 
+    clearDocumentOutcome();
     setIsSearching(true);
-    setResult(null);
-    setNotFound(false);
-    setPdfUrl(null);
+    clearSearchOutcome();
 
     try {
       if (type === "cert") {
@@ -104,7 +112,7 @@ function VerifyPageContent() {
     }
 
     setIsSearching(false);
-  }, []);
+  }, [clearDocumentOutcome, clearSearchOutcome]);
 
   // Auto-verify from URL: /verify?certId=CERT-2026-001
   useEffect(() => {
@@ -127,8 +135,8 @@ function VerifyPageContent() {
 
   const handleDocumentVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    setDocumentVerifyError(null);
-    setDocumentVerifyResult(null);
+    clearSearchOutcome();
+    clearDocumentOutcome();
 
     if (!documentFile) {
       setDocumentVerifyError({
@@ -315,8 +323,8 @@ function VerifyPageContent() {
                   onClick={() => {
                     setSearchType(tab.id);
                     setSearchQuery("");
-                    setResult(null);
-                    setNotFound(false);
+                    clearSearchOutcome();
+                    clearDocumentOutcome();
                   }}
                   className={`flex flex-1 items-center justify-center gap-2 px-3 py-3 text-xs font-medium transition-colors ${
                     searchType === tab.id

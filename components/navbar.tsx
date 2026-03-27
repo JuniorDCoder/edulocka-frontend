@@ -8,7 +8,7 @@ import { NetworkBadge } from "./network-badge";
 import { GasTracker } from "./gas-tracker";
 import { getNetworkInfo } from "@/lib/contract";
 import { Menu, X, GraduationCap, Link as LinkIcon, ChevronDown } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const homeLink = { href: "/", label: "Home" };
 
@@ -50,6 +50,7 @@ export function Navbar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const desktopNavRef = useRef<HTMLElement | null>(null);
   const [networkInfo, setNetworkInfo] = useState({
     name: "Connecting...",
     chainId: 0,
@@ -68,6 +69,28 @@ export function Navbar() {
       }
     };
     fetchInfo();
+  }, []);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!desktopNavRef.current) return;
+      if (desktopNavRef.current.contains(event.target as Node)) return;
+      setOpenGroup(null);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpenGroup(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
   }, []);
 
   const isActiveLink = (href: string) =>
@@ -96,7 +119,7 @@ export function Navbar() {
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden items-center gap-2 md:flex">
+        <nav ref={desktopNavRef} className="hidden items-center gap-2 md:flex">
           <Link
             href={homeLink.href}
             onClick={() => setOpenGroup(null)}
@@ -120,12 +143,12 @@ export function Navbar() {
               <div
                 key={group.id}
                 className="relative"
-                onMouseEnter={() => setOpenGroup(group.id)}
-                onMouseLeave={() => setOpenGroup((current) => (current === group.id ? null : current))}
               >
                 <button
                   type="button"
                   onClick={() => setOpenGroup((current) => (current === group.id ? null : group.id))}
+                  aria-expanded={isOpen}
+                  aria-haspopup="menu"
                   className={`relative flex items-center gap-1 rounded-none px-3 py-2 text-sm font-semibold transition-colors ${
                     isGroupActive || isOpen
                       ? "text-blue-600 dark:text-blue-400"
@@ -140,7 +163,10 @@ export function Navbar() {
                 </button>
 
                 {isOpen && (
-                  <div className="absolute left-0 top-full mt-2 w-64 rounded-none border-2 border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900">
+                  <div
+                    className="absolute left-0 top-full mt-2 w-64 rounded-none border-2 border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-900"
+                    role="menu"
+                  >
                     <p className="border-b border-gray-100 px-2 pb-2 font-mono text-[10px] uppercase tracking-wider text-gray-500 dark:border-gray-800 dark:text-gray-400">
                       {group.description}
                     </p>
@@ -150,6 +176,7 @@ export function Navbar() {
                           key={link.href}
                           href={link.href}
                           onClick={() => setOpenGroup(null)}
+                          role="menuitem"
                           className={`block rounded-none px-2 py-2 text-sm transition-colors ${
                             isActiveLink(link.href)
                               ? "bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950/20 dark:text-blue-400"
