@@ -653,7 +653,7 @@ Bob Smith,STU-2026-002,MBA,Harvard,2026-06-15,bob@example.com`}
           <div className="mx-auto max-w-2xl space-y-6">
             <div className="rounded-none border-2 border-blue-200 bg-white p-8 text-center dark:border-blue-800 dark:bg-gray-900">
               <div className="mx-auto mb-4 flex justify-center">
-                <ShimmerLoader height={48} width={160} />
+                <ShimmerLoader height={48} width="160px" />
               </div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                 Processing Certificates

@@ -8,6 +8,12 @@ import { getWalletAuth } from "@/lib/wallet-auth";
 import { TransactionStatus } from "@/components/transaction-status";
 import { HashDisplay } from "@/components/hash-display";
 import { NetworkBadge } from "@/components/network-badge";
+
+// Declare File constructor for TypeScript
+declare const File: {
+  prototype: File;
+  new (fileBits: BlobPart[], fileName: string, options?: FilePropertyBag): File;
+};
 import { TransactionStep } from "@/lib/types";
 import {
   issueCertificate,
@@ -36,7 +42,7 @@ import {
   Copy,
   Check,
   X,
-  File,
+  File as FileIcon,
   RefreshCw,
   Server,
   Monitor,
@@ -864,7 +870,7 @@ export default function IssuePage() {
                               <div className="flex items-center justify-between px-4 py-3">
                                 <div className="flex items-center gap-3">
                                   <div className="flex h-10 w-10 items-center justify-center rounded-sm bg-green-100 dark:bg-green-900/30">
-                                    <File className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                    <FileIcon className="h-5 w-5 text-green-600 dark:text-green-400" />
                                   </div>
                                   <div>
                                     <p className="text-sm font-medium text-gray-900 dark:text-white">{backendUploadedFile.name}</p>
@@ -930,7 +936,7 @@ export default function IssuePage() {
                           <div className="flex items-center justify-between px-4 py-3">
                             <div className="flex items-center gap-3">
                               <div className="flex h-10 w-10 items-center justify-center rounded-sm bg-green-100 dark:bg-green-900/30">
-                                <File className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                <FileIcon className="h-5 w-5 text-green-600 dark:text-green-400" />
                               </div>
                               <div>
                                 <p className="text-sm font-medium text-gray-900 dark:text-white">{uploadedFile.name}</p>
@@ -972,7 +978,7 @@ export default function IssuePage() {
                       <div className="flex items-center justify-between px-4 py-3">
                         <div className="flex items-center gap-3">
                           <div className="flex h-10 w-10 items-center justify-center rounded-sm bg-green-100 dark:bg-green-900/30">
-                            <File className="h-5 w-5 text-green-600 dark:text-green-400" />
+                            <FileIcon className="h-5 w-5 text-green-600 dark:text-green-400" />
                           </div>
                           <div>
                             <p className="text-sm font-medium text-gray-900 dark:text-white">{uploadedFile?.name}</p>
