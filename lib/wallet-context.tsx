@@ -10,7 +10,7 @@ import {
 } from "react";
 import { ethers } from "ethers";
 import { WalletState } from "./types";
-import { TARGET_CHAIN_ID, RPC_URL, IS_LOCAL } from "./contract-config";
+import { TARGET_CHAIN_ID, RPC_URL, IS_LOCAL, ETHERSCAN_BASE_URL } from "./contract-config";
 
 interface WalletContextType {
   wallet: WalletState;
@@ -92,7 +92,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
               chainName: "Sepolia Testnet",
               nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
               rpcUrls: [RPC_URL],
-              blockExplorerUrls: ["https://sepolia.etherscan.io"],
+              blockExplorerUrls: ETHERSCAN_BASE_URL ? [ETHERSCAN_BASE_URL] : [],
             };
         try {
           await window.ethereum.request({

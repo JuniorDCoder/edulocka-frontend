@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Copy, Check } from "lucide-react";
+import { ETHERSCAN_BASE_URL } from "@/lib/contract-config";
 
 interface HashDisplayProps {
   hash: string;
@@ -38,9 +39,9 @@ export function HashDisplay({
         </span>
       )}
       <code className="font-mono text-sm text-blue-600 dark:text-cyan-400">
-        {etherscanLink ? (
+        {etherscanLink && ETHERSCAN_BASE_URL ? (
           <a
-            href={`https://sepolia.etherscan.io/tx/${hash}`}
+            href={`${ETHERSCAN_BASE_URL}/tx/${hash}`}
             target="_blank"
             rel="noopener noreferrer"
             className="hover:underline"

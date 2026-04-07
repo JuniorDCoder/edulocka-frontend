@@ -11,6 +11,7 @@ import {
   adminApproveApplication,
   adminRejectApplication,
   adminDeauthorizeInstitution,
+  adminSyncInstitutionsToBlockchain,
   adminListBlogs,
   adminReviewBlog,
   adminDeleteBlog,
@@ -97,6 +98,8 @@ export default function AdminPage() {
   // Institutions
   const [institutions, setInstitutions] = useState<Record<string, unknown>[]>([]);
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Blogs
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
@@ -251,6 +254,32 @@ export default function AdminPage() {
       setLoadingInstitutions(false);
     }
   }, [auth, handleUnauthorizedAdminError]);
+
+  // Sync approved institutions to blockchain
+  const handleSyncToBlockchain = useCallback(async () => {
+    if (!auth) return;
+    setSyncLoading(true);
+    setSyncResult(null);
+    try {
+      const result = await adminSyncInstitutionsToBlockchain(auth);
+      setSyncResult({
+        type: "success",
+        message: result.message + (result.synced.length > 0 ? ` Synced: ${result.synced.map((s) => s.name).join(", ")}` : ""),
+      });
+      // Reload institutions after sync
+      setTimeout(() => loadInstitutions(), 2000);
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        return;
+      }
+      setSyncResult({
+        type: "error",
+        message: err instanceof ApiError ? err.message : String(err),
+      });
+    } finally {
+      setSyncLoading(false);
+    }
+  }, [auth, handleUnauthorizedAdminError, loadInstitutions]);
 
   // Load blogs for admin moderation
   const loadBlogs = useCallback(async () => {
@@ -1046,19 +1075,50 @@ export default function AdminPage() {
       {/* ── Institutions Tab ─────────────────────────────────────────── */}
       {activeTab === "institutions" && (
         <div>
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="font-mono text-lg font-bold text-gray-900 dark:text-white">
               Authorized Institutions (On-Chain)
             </h2>
-            <button
-              onClick={loadInstitutions}
-              disabled={loadingInstitutions}
-              className="flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
-            >
-              <RefreshCw className={`h-3.5 w-3.5 ${loadingInstitutions ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSyncToBlockchain}
+                disabled={syncLoading || loadingInstitutions}
+                className="flex items-center gap-2 rounded-sm border border-green-200 bg-green-50 px-4 py-2 text-sm font-medium text-green-700 hover:bg-green-100 disabled:opacity-50 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400"
+                title="Sync approved institutions from database to blockchain"
+              >
+                {syncLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Sync to Blockchain
+              </button>
+              <button
+                onClick={loadInstitutions}
+                disabled={loadingInstitutions || syncLoading}
+                className="flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loadingInstitutions ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
           </div>
+
+          {/* Sync result message */}
+          {syncResult && (
+            <div
+              className={`mb-4 rounded-sm border px-4 py-3 text-sm ${
+                syncResult.type === "success"
+                  ? "border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-950/30 dark:text-green-400"
+                  : "border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                {syncResult.type === "success" ? (
+                  <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                ) : (
+                  <XCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                )}
+                <div>{syncResult.message}</div>
+              </div>
+            </div>
+          )}
 
           {loadingInstitutions ? (
             <div className="flex justify-center py-12">
@@ -1068,6 +1128,11 @@ export default function AdminPage() {
             <div className="rounded-sm border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-[#111]">
               <Building2 className="mx-auto mb-3 h-8 w-8 text-gray-300" />
               <p className="text-sm text-gray-500 dark:text-gray-400">No institutions authorized on-chain yet.</p>
+              {!syncLoading && (
+                <p className="mt-2 text-xs text-gray-400">
+                  Click <span className="font-semibold">Sync to Blockchain</span> to authorize approved institutions.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-2">

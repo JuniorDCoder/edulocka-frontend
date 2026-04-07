@@ -3,6 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { useWallet } from "@/lib/wallet-context";
+import { getWalletAuth } from "@/lib/wallet-auth";
 import { isAuthorizedInstitution } from "@/lib/contract";
 import {
   bulkUploadCSV,
@@ -16,7 +17,6 @@ import {
   type TemplateInfo,
 } from "@/lib/api-client";
 import {
-  Upload,
   FileSpreadsheet,
   CheckCircle,
   XCircle,
@@ -43,6 +43,9 @@ import {
   X,
   Trophy,
 } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const ShimmerLoader = dynamic(() => import("@/components/ShimmerLoader"), { ssr: false });
 
 // ── Phase labels for display ────────────────────────────────────────────────
 const PHASE_LABELS: Record<string, string> = {
@@ -61,6 +64,7 @@ type Step = "upload" | "preview" | "processing" | "complete";
 export default function BulkPage() {
   const { wallet, connect } = useWallet();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── State ───────────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>("upload");
@@ -72,8 +76,8 @@ export default function BulkPage() {
   const [uploadResult, setUploadResult] = useState<BulkUploadResult | null>(null);
 
   // Processing
-  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [jobStatus, setJobStatus] = useState<JobStatus | null>(null);
 
   // Options
   const [sendEmails, setSendEmails] = useState(false);
@@ -114,6 +118,14 @@ export default function BulkPage() {
     check();
   }, [wallet.connected, wallet.address]);
 
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+    };
+  }, []);
+
   // ── File Upload Handler ─────────────────────────────────────────────────
 
   const handleFileSelect = useCallback(async (file: File) => {
@@ -151,24 +163,67 @@ export default function BulkPage() {
     setStep("processing");
 
     try {
-      await processBatch(uploadResult.jobId, {
+      const walletAuth = getWalletAuth(wallet);
+      if (!walletAuth) {
+        throw new Error("Connect and unlock the institution wallet before bulk issuance.");
+      }
+
+      const response = await processBatch(uploadResult.jobId, {
         templateName: selectedTemplate,
         sendEmails,
-      });
+      }, walletAuth);
+
+      if (response.status === "completed") {
+        setJobStatus(response as JobStatus);
+        setIsProcessing(false);
+        setStep("complete");
+        return;
+      }
+
+      if (response.status === "failed") {
+        throw new Error(response.error || "Bulk processing failed.");
+      }
 
       // Poll for status
-      const poll = setInterval(async () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+      }
+
+      let pollAttempts = 0;
+      pollingRef.current = setInterval(async () => {
         try {
           const status = await getJobStatus(uploadResult.jobId);
           setJobStatus(status);
-
+          pollAttempts++;
           if (status.status === "completed" || status.status === "failed") {
-            clearInterval(poll);
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
             setIsProcessing(false);
-            if (status.status === "completed") setStep("complete");
+            if (status.status === "completed") {
+              setStep("complete");
+            } else {
+              setError(status.error || "Bulk processing failed.");
+              setStep("preview");
+            }
+          } else if (pollAttempts > 240) { // 6 minutes max
+            if (pollingRef.current) {
+              clearInterval(pollingRef.current);
+              pollingRef.current = null;
+            }
+            setIsProcessing(false);
+            setError("Processing timed out. Please try again or check your network.");
+            setStep("preview");
           }
-        } catch {
-          // Keep polling
+        } catch (err) {
+          setIsProcessing(false);
+          setError("Lost connection to server. Please try again.");
+          setStep("preview");
+          if (pollingRef.current) {
+            clearInterval(pollingRef.current);
+            pollingRef.current = null;
+          }
         }
       }, 1500);
     } catch (err) {
@@ -176,7 +231,7 @@ export default function BulkPage() {
       setIsProcessing(false);
       setStep("preview");
     }
-  }, [uploadResult, selectedTemplate, sendEmails]);
+  }, [uploadResult, selectedTemplate, sendEmails, wallet]);
 
   // ── Download handlers ─────────────────────────────────────────────────
 
@@ -213,6 +268,10 @@ export default function BulkPage() {
   // ── Reset ─────────────────────────────────────────────────────────────
 
   const handleReset = () => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
     setStep("upload");
     setUploadResult(null);
     setJobStatus(null);
@@ -593,7 +652,9 @@ Bob Smith,STU-2026-002,MBA,Harvard,2026-06-15,bob@example.com`}
         {step === "processing" && (
           <div className="mx-auto max-w-2xl space-y-6">
             <div className="rounded-none border-2 border-blue-200 bg-white p-8 text-center dark:border-blue-800 dark:bg-gray-900">
-              <Loader2 className="mx-auto mb-4 h-12 w-12 animate-spin text-blue-500" />
+              <div className="mx-auto mb-4 flex justify-center">
+                <ShimmerLoader height={48} width={160} />
+              </div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                 Processing Certificates
               </h2>
@@ -821,13 +882,27 @@ Bob Smith,STU-2026-002,MBA,Harvard,2026-06-15,bob@example.com`}
                           <td className="px-4 py-2.5 font-mono text-blue-600 dark:text-blue-400">{r.certId}</td>
                           <td className="px-4 py-2.5">
                             {r.blockchain.status === "success" ? (
-                              <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
-                                <CheckCircle className="h-3 w-3" /> OK
-                              </span>
+                              <div className="space-y-1">
+                                <span className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                                  <CheckCircle className="h-3 w-3" /> OK
+                                </span>
+                                {r.blockchain.txHash && (
+                                  <p className="font-mono text-[10px] text-gray-400">
+                                    {r.blockchain.txHash.slice(0, 10)}...{r.blockchain.txHash.slice(-6)}
+                                  </p>
+                                )}
+                              </div>
                             ) : (
-                              <span className="flex items-center gap-1 text-red-500">
-                                <XCircle className="h-3 w-3" /> Failed
-                              </span>
+                              <div className="space-y-1">
+                                <span className="flex items-center gap-1 text-red-500">
+                                  <XCircle className="h-3 w-3" /> Failed
+                                </span>
+                                {r.blockchain.error && (
+                                  <p className="max-w-[16rem] text-[10px] text-red-500/80 dark:text-red-400/80">
+                                    {r.blockchain.error}
+                                  </p>
+                                )}
+                              </div>
                             )}
                           </td>
                           <td className="px-4 py-2.5">

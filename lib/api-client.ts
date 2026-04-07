@@ -295,11 +295,25 @@ export async function bulkUploadCSV(file: File): Promise<BulkUploadResult> {
 /** Start processing a validated batch */
 export async function processBatch(
   jobId: string,
-  options?: { templateName?: string; sendEmails?: boolean }
-): Promise<{ jobId: string; status: string; totalRecords: number; message: string }> {
+  options: { templateName?: string; sendEmails?: boolean } | undefined,
+  wallet: WalletAuth
+): Promise<{
+  jobId: string;
+  status: string;
+  totalRecords: number;
+  message?: string;
+  createdAt?: string;
+  completedAt?: string;
+  progress?: JobStatus["progress"];
+  summary?: JobStatus["summary"];
+  results?: JobStatus["results"];
+  error?: string;
+}> {
+  const headers = await getWalletAuthHeaders(wallet);
   return apiFetch("/api/bulk/process", {
     method: "POST",
     body: JSON.stringify({ jobId, ...options }),
+    headers,
   });
 }
 
@@ -376,10 +390,25 @@ export async function issueSingleViaBackend(data: {
   issueDate: string;
   email?: string;
   templateName?: string;
-}): Promise<SingleIssueResult> {
+  documentMode?: "template" | "upload";
+  documentFile?: File;
+}, wallet: WalletAuth): Promise<SingleIssueResult> {
+  const headers = await getWalletAuthHeaders(wallet);
+  const formData = new FormData();
+  formData.append("studentName", data.studentName);
+  formData.append("studentId", data.studentId);
+  formData.append("degree", data.degree);
+  formData.append("institution", data.institution);
+  formData.append("issueDate", data.issueDate);
+  formData.append("documentMode", data.documentMode || "template");
+  if (data.email) formData.append("email", data.email);
+  if (data.templateName) formData.append("templateName", data.templateName);
+  if (data.documentFile) formData.append("document", data.documentFile);
+
   return apiFetch("/api/certificates/issue", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: formData,
+    headers,
   });
 }
 
@@ -652,6 +681,23 @@ export async function adminDeauthorizeInstitution(
     method: "POST",
     headers: adminHeaders(auth.address, auth.signature, auth.message),
     body: JSON.stringify({ reason }),
+  });
+}
+
+/** Sync approved institutions from DB to blockchain (admin) */
+export async function adminSyncInstitutionsToBlockchain(auth: {
+  address: string;
+  signature: string;
+  message: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  synced: Array<{ id: string; name: string; wallet: string; txHash: string; blockNumber: number }>;
+  failed: Array<{ id: string; name: string; wallet: string; error: string }>;
+}> {
+  return apiFetch("/api/admin/sync-to-blockchain", {
+    method: "POST",
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
   });
 }
 

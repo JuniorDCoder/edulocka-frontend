@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { QRCodeSVG } from "qrcode.react";
 import { useWallet } from "@/lib/wallet-context";
+import { getWalletAuth } from "@/lib/wallet-auth";
 import { TransactionStatus } from "@/components/transaction-status";
 import { HashDisplay } from "@/components/hash-display";
 import { NetworkBadge } from "@/components/network-badge";
@@ -58,9 +59,13 @@ export default function IssuePage() {
   const [ipfsHash, setIpfsHash] = useState("");
   const [documentHash, setDocumentHash] = useState("");
   const [ipfsPinned, setIpfsPinned] = useState(false);
+  const [directDocumentMode, setDirectDocumentMode] = useState<'template' | 'upload'>('upload');
   const [uploadedFile, setUploadedFile] = useState<{ name: string; size: number } | null>(null);
+  const [directSelectedTemplate, setDirectSelectedTemplate] = useState('default-certificate');
+  const [generatingPdf, setGeneratingPdf] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backendFileInputRef = useRef<HTMLInputElement>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [issuedCertId, setIssuedCertId] = useState("");
   const [txSteps, setTxSteps] = useState<TransactionStep[]>([]);
@@ -81,10 +86,12 @@ export default function IssuePage() {
   const [institutionName, setInstitutionName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Backend pipeline mode
-  const [useBackend, setUseBackend] = useState(false);
+  // Backend pipeline mode (only mode available)
+  const useBackend = true;
   const [email, setEmail] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("default-certificate");
+  const [backendDocumentMode, setBackendDocumentMode] = useState<"template" | "upload">("template");
+  const [backendUploadedFile, setBackendUploadedFile] = useState<File | null>(null);
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
   const [backendResult, setBackendResult] = useState<{
     certId: string;
@@ -173,6 +180,42 @@ export default function IssuePage() {
     fileInputRef.current?.click();
   };
 
+  // Generate PDF from template in-browser (simple HTML->PDF)
+  const handleGeneratePdfFromTemplate = async () => {
+    setGeneratingPdf(true);
+    setError(null);
+    try {
+      // Fetch template HTML from backend
+      const res = await fetch(`/api/templates/${directSelectedTemplate}`);
+      if (!res.ok) throw new Error('Failed to fetch template');
+      const { html } = await res.json();
+      // Replace placeholders with formData
+      let filledHtml = html;
+      Object.entries(formData).forEach(([key, value]) => {
+        filledHtml = filledHtml.replace(new RegExp(`{{\s*${key}\s*}}`, 'g'), value);
+      });
+      // Use html2pdf.js or similar to generate PDF
+      // Dynamically import html2pdf.js (must be installed in package.json)
+      const html2pdf = (await import('html2pdf.js')).default;
+      const pdfBlob = await html2pdf().from(filledHtml).outputPdf('blob');
+      // Create a File object for upload
+      const pdfFile = new File([pdfBlob], `${formData.certId || 'certificate'}.pdf`, { type: 'application/pdf' });
+      setUploadedFile({ name: pdfFile.name, size: pdfFile.size });
+      // Upload to IPFS as usual
+      setIsUploading(true);
+      const result = await uploadToIPFS(pdfFile);
+      setIpfsHash(result.ipfsHash);
+      setDocumentHash(result.documentHash || '');
+      setIpfsPinned(result.pinned);
+      setIsUploading(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'PDF generation failed');
+      setUploadedFile(null);
+      setIsUploading(false);
+    }
+    setGeneratingPdf(false);
+  };
+
   const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -213,6 +256,30 @@ export default function IssuePage() {
     setIpfsPinned(false);
     setUploadedFile(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleBackendFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const isPdf =
+      file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (!isPdf) {
+      setError("Please upload a PDF certificate document for backend issuance.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setError("Backend certificate upload must be under 20MB.");
+      return;
+    }
+
+    setError(null);
+    setBackendUploadedFile(file);
+  };
+
+  const handleRemoveBackendFile = () => {
+    setBackendUploadedFile(null);
+    if (backendFileInputRef.current) backendFileInputRef.current.value = "";
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -339,6 +406,14 @@ export default function IssuePage() {
     ]);
 
     try {
+      const walletAuth = getWalletAuth(wallet);
+      if (!walletAuth) {
+        throw new Error("Connect and unlock the institution wallet before using the backend pipeline.");
+      }
+      if (backendDocumentMode === "upload" && !backendUploadedFile) {
+        throw new Error("Please upload a PDF certificate document, or switch to template mode.");
+      }
+
       setTxSteps([
         { label: "Sent to backend", status: "completed" },
         { label: "Processing pipeline...", status: "processing" },
@@ -354,8 +429,10 @@ export default function IssuePage() {
         institution: formData.institution,
         issueDate: formData.issueDate,
         email: email || undefined,
-        templateName: selectedTemplate,
-      });
+        templateName: backendDocumentMode === "template" ? selectedTemplate : undefined,
+        documentMode: backendDocumentMode,
+        documentFile: backendDocumentMode === "upload" ? backendUploadedFile || undefined : undefined,
+      }, walletAuth);
 
       setTxSteps([
         { label: "Sent to backend", status: "completed" },
@@ -387,6 +464,8 @@ export default function IssuePage() {
       // Reset form
       setFormData({ studentName: "", studentId: "", degree: "", institution: institutionName || "", issueDate: "", certId: "" });
       setEmail("");
+      setBackendUploadedFile(null);
+      if (backendFileInputRef.current) backendFileInputRef.current.value = "";
       try {
         const nextId = await generateCertificateId();
         setFormData((prev) => ({ ...prev, certId: nextId }));
@@ -486,30 +565,13 @@ export default function IssuePage() {
             </Link>
           </div>
 
-          {/* Mode toggle */}
-          <div className="mt-4 flex flex-col rounded-none border-2 border-gray-200 sm:flex-row dark:border-gray-700">
-            <button
-              type="button"
-              onClick={() => setUseBackend(false)}
-              className={`flex flex-1 items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold transition-colors ${
-                !useBackend
-                  ? "bg-blue-600 text-white dark:bg-blue-500"
-                  : "bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800"
-              }`}
-            >
-              <Monitor className="h-3.5 w-3.5" /> Direct Blockchain (MetaMask)
-            </button>
-            <button
-              type="button"
-              onClick={() => setUseBackend(true)}
-              className={`flex flex-1 items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold transition-colors ${
-                useBackend
-                  ? "bg-blue-600 text-white dark:bg-blue-500"
-                  : "bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800"
-              }`}
-            >
-              <Server className="h-3.5 w-3.5" /> Backend Pipeline (PDF + QR + Email)
-            </button>
+          {/* Issuance info badge */}
+          <div className="mt-4 flex items-center gap-2 rounded-none border-2 border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950/20">
+            <Server className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-blue-900 dark:text-blue-200">Secure Issuance</p>
+              <p className="text-xs text-blue-700 dark:text-blue-400">Certificate PDF, QR code, and email will be generated automatically</p>
+            </div>
           </div>
         </div>
 
@@ -705,35 +767,143 @@ export default function IssuePage() {
                   </div>
                 </div>
 
+                {/* ── Certificate Document Section ── */}
                 <div>
                   <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">Certificate Document (PDF / Image)</label>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg"
-                    onChange={handleFileSelected}
-                    className="hidden"
-                  />
 
                   {useBackend ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setBackendDocumentMode("template")}
+                          className={`rounded-none border-2 px-4 py-3 text-left transition-colors ${
+                            backendDocumentMode === "template"
+                              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950/20 dark:text-blue-400"
+                              : "border-gray-200 bg-white text-gray-600 hover:border-blue-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <FileText className="h-4 w-4" />
+                            Use Template PDF
+                          </div>
+                          <p className="mt-1 text-xs opacity-80">
+                            Fill student data and let the backend render the selected default or institution template.
+                          </p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setBackendDocumentMode("upload")}
+                          className={`rounded-none border-2 px-4 py-3 text-left transition-colors ${
+                            backendDocumentMode === "upload"
+                              ? "border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950/20 dark:text-blue-400"
+                              : "border-gray-200 bg-white text-gray-600 hover:border-blue-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-400"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2 text-sm font-medium">
+                            <Upload className="h-4 w-4" />
+                            Upload Existing PDF
+                          </div>
+                          <p className="mt-1 text-xs opacity-80">
+                            Provide your own finished certificate PDF and let the backend pin and issue it.
+                          </p>
+                        </button>
+                      </div>
+
+                      {backendDocumentMode === "template" ? (
+                        <div className="space-y-3">
+                          <div className="rounded-none border-2 border-blue-100 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
+                            <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-400">
+                              <FileText className="h-4 w-4" />
+                              <span className="font-medium">PDF auto-generated by backend using the selected template</span>
+                            </div>
+                            <p className="mt-1 text-xs text-blue-600/70 dark:text-blue-400/60">
+                              Student details entered above will be injected into the chosen template before upload to IPFS and on-chain issuance.
+                            </p>
+                          </div>
+                          <div>
+                            <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                              Select Template
+                            </label>
+                            <select
+                              value={selectedTemplate}
+                              onChange={(e) => setSelectedTemplate(e.target.value)}
+                              className="w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
+                            >
+                              {templates.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}{t.owner === "default" ? " (Default)" : " (Custom)"}
+                                </option>
+                              ))}
+                            </select>
+                            <a href="/templates" className="mt-1 inline-block text-xs text-blue-600 hover:underline dark:text-blue-400">
+                              Manage templates →
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <input
+                            ref={backendFileInputRef}
+                            type="file"
+                            accept=".pdf,application/pdf"
+                            onChange={handleBackendFileSelected}
+                            className="hidden"
+                          />
+                          {!backendUploadedFile ? (
+                            <div
+                              onClick={() => backendFileInputRef.current?.click()}
+                              className="flex cursor-pointer flex-col items-center justify-center rounded-none border-2 border-dashed border-gray-300 bg-gray-50 px-6 py-8 transition-colors hover:border-blue-500 hover:bg-blue-50/50 dark:border-gray-600 dark:bg-gray-800/50 dark:hover:border-blue-500 dark:hover:bg-blue-950/20"
+                            >
+                              <Upload className="mb-2 h-8 w-8 text-gray-400" />
+                              <p className="text-sm text-gray-600 dark:text-gray-300">Click to upload a PDF certificate</p>
+                              <p className="mt-1 text-xs text-gray-400">PDF only, up to 20MB</p>
+                            </div>
+                          ) : (
+                            <div className="rounded-none border-2 border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/20">
+                              <div className="flex items-center justify-between px-4 py-3">
+                                <div className="flex items-center gap-3">
+                                  <div className="flex h-10 w-10 items-center justify-center rounded-sm bg-green-100 dark:bg-green-900/30">
+                                    <File className="h-5 w-5 text-green-600 dark:text-green-400" />
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-white">{backendUploadedFile.name}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                                      {(backendUploadedFile.size / 1024).toFixed(1)} KB - ready for backend upload
+                                    </p>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleRemoveBackendFile}
+                                  className="flex h-7 w-7 items-center justify-center rounded-sm text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                                >
+                                  <X className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : directDocumentMode === "template" ? (
                     <div className="space-y-3">
                       <div className="rounded-none border-2 border-blue-100 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/20">
                         <div className="flex items-center gap-2 text-sm text-blue-700 dark:text-blue-400">
                           <FileText className="h-4 w-4" />
-                          <span className="font-medium">PDF auto-generated by backend using template</span>
+                          <span className="font-medium">PDF will be generated in-browser using the selected template</span>
                         </div>
                         <p className="mt-1 text-xs text-blue-600/70 dark:text-blue-400/60">
-                          The backend will generate a professional PDF certificate and upload it to IPFS automatically.
+                          Student details entered above will be injected into the chosen template before upload to IPFS and on-chain issuance.
                         </p>
                       </div>
-                      {/* Template selector */}
                       <div>
                         <label className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
                           Select Template
                         </label>
                         <select
-                          value={selectedTemplate}
-                          onChange={(e) => setSelectedTemplate(e.target.value)}
+                          value={directSelectedTemplate}
+                          onChange={(e) => setDirectSelectedTemplate(e.target.value)}
                           className="w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white"
                         >
                           {templates.map((t) => (
@@ -746,27 +916,56 @@ export default function IssuePage() {
                           Manage templates →
                         </a>
                       </div>
+                      <button
+                        type="button"
+                        onClick={handleGeneratePdfFromTemplate}
+                        className="mt-2 flex items-center gap-2 rounded-none border-2 border-blue-500 bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-60"
+                        disabled={generatingPdf || isUploading}
+                      >
+                        {generatingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                        Generate PDF & Upload
+                      </button>
+                      {uploadedFile && (
+                        <div className="mt-3 rounded-none border-2 border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/20">
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-sm bg-green-100 dark:bg-green-900/30">
+                                <File className="h-5 w-5 text-green-600 dark:text-green-400" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-gray-900 dark:text-white">{uploadedFile.name}</p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400">
+                                  {(uploadedFile.size / 1024).toFixed(1)} KB - ready for on-chain issuance
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : !uploadedFile ? (
-                    <div
-                      onClick={handleFileUpload}
-                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const file = e.dataTransfer.files?.[0];
-                        if (file && fileInputRef.current) {
-                          const dt = new DataTransfer();
-                          dt.items.add(file);
-                          fileInputRef.current.files = dt.files;
-                          fileInputRef.current.dispatchEvent(new Event("change", { bubbles: true }));
-                        }
-                      }}
-                      className="flex cursor-pointer flex-col items-center justify-center rounded-none border-2 border-dashed border-gray-300 bg-gray-50 px-6 py-8 transition-colors hover:border-blue-500 hover:bg-blue-50/50 dark:border-gray-600 dark:bg-gray-800/50 dark:hover:border-blue-500 dark:hover:bg-blue-950/20"
-                    >
-                      <Upload className="mb-2 h-8 w-8 text-gray-400" />
-                      <p className="text-sm text-gray-600 dark:text-gray-300">Click to upload or drag and drop</p>
-                      <p className="mt-1 text-xs text-gray-400">PDF, PNG, JPG up to 10MB</p>
+                    <div>
+                      <input ref={fileInputRef} type="file" accept=".pdf,image/png,image/jpeg" onChange={handleFileSelected} className="hidden" />
+                      <div
+                        onClick={handleFileUpload}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const file = e.dataTransfer.files?.[0];
+                          if (file && fileInputRef.current) {
+                            const dt = new DataTransfer();
+                            dt.items.add(file);
+                            fileInputRef.current.files = dt.files;
+                            fileInputRef.current.dispatchEvent(new Event("change", { bubbles: true }));
+                          }
+                        }}
+                        className="flex cursor-pointer flex-col items-center justify-center rounded-none border-2 border-dashed border-gray-300 bg-gray-50 px-6 py-8 transition-colors hover:border-blue-500 hover:bg-blue-50/50 dark:border-gray-600 dark:bg-gray-800/50 dark:hover:border-blue-500 dark:hover:bg-blue-950/20"
+                      >
+                        <Upload className="mb-2 h-8 w-8 text-gray-400" />
+                        <p className="text-sm text-gray-600 dark:text-gray-300">Click to upload or drag and drop</p>
+                        <p className="mt-1 text-xs text-gray-400">PDF, PNG, JPG up to 10MB</p>
+                      </div>
                     </div>
                   ) : (
                     <div className="rounded-none border-2 border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-950/20">
@@ -776,9 +975,9 @@ export default function IssuePage() {
                             <File className="h-5 w-5 text-green-600 dark:text-green-400" />
                           </div>
                           <div>
-                            <p className="text-sm font-medium text-gray-900 dark:text-white">{uploadedFile.name}</p>
+                            <p className="text-sm font-medium text-gray-900 dark:text-white">{uploadedFile?.name}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">
-                              {(uploadedFile.size / 1024).toFixed(1)} KB
+                              {(uploadedFile?.size / 1024).toFixed(1)} KB
                               {isUploading ? " — Uploading to IPFS..." : ipfsPinned ? " — ✓ Pinned on IPFS" : " — ✓ Hash generated (local)"}
                             </p>
                           </div>
@@ -843,13 +1042,11 @@ export default function IssuePage() {
               )}
 
               <div className="border-t border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-gray-800">
-                <button type="submit" disabled={isSubmitting || (!useBackend && isAuthorized === false)} className="flex w-full items-center justify-center gap-2 rounded-none border-2 border-blue-600 bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500 dark:hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]">
+                <button type="submit" disabled={isSubmitting || isAuthorized === false} className="flex w-full items-center justify-center gap-2 rounded-none border-2 border-blue-600 bg-blue-600 px-6 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500 dark:hover:shadow-[0_0_20px_rgba(59,130,246,0.4)]">
                   {isSubmitting ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />Processing{useBackend ? " via Backend..." : " Transaction..."}</>
-                  ) : useBackend ? (
-                    <><Server className="h-4 w-4" />Issue via Backend Pipeline<ArrowRight className="h-4 w-4" /></>
+                    <><Loader2 className="h-4 w-4 animate-spin" />Processing...</>
                   ) : (
-                    <><FileCheck className="h-4 w-4" />Sign & Issue Certificate<ArrowRight className="h-4 w-4" /></>
+                    <><FileCheck className="h-4 w-4" />Issue Certificate<ArrowRight className="h-4 w-4" /></>
                   )}
                 </button>
               </div>

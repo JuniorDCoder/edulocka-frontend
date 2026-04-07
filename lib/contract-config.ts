@@ -18,6 +18,16 @@ const RPC_URLS: Record<string, string> = {
   sepolia: process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || "https://sepolia.infura.io/v3/YOUR-KEY",
 };
 
+// Fallback RPC URLs if primary fails (useful for Alchemy rate limiting)
+const FALLBACK_RPC_URLS: Record<string, string[]> = {
+  local: [],
+  sepolia: [
+    "https://sepolia.infura.io/v3/YOUR-KEY",
+    "https://rpc.sepolia.org",
+    "https://11155111.rpc.thirdweb.com",
+  ],
+};
+
 const CHAIN_IDS: Record<string, number> = {
   local: 31337,
   sepolia: 11155111,
@@ -25,6 +35,7 @@ const CHAIN_IDS: Record<string, number> = {
 
 export const CONTRACT_ADDRESS = ADDRESSES[ACTIVE_NETWORK] || ADDRESSES.sepolia;
 export const RPC_URL = RPC_URLS[ACTIVE_NETWORK] || RPC_URLS.sepolia;
+export const FALLBACK_RPCS = FALLBACK_RPC_URLS[ACTIVE_NETWORK] || [];
 export const TARGET_CHAIN_ID = CHAIN_IDS[ACTIVE_NETWORK] || CHAIN_IDS.sepolia;
 
 // Keep legacy exports for backward compatibility

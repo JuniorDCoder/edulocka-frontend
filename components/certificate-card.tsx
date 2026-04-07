@@ -2,6 +2,7 @@
 
 import { Certificate } from "@/lib/types";
 import { truncateAddress, truncateHash } from "@/lib/mock-data";
+import { ETHERSCAN_BASE_URL } from "@/lib/contract-config";
 import {
   CheckCircle,
   Clock,
@@ -173,14 +174,16 @@ export function CertificateCard({ certificate, compact = false }: CertificateCar
                   <Copy className="h-3 w-3" />
                 )}
               </button>
-              <a
-                href={`https://sepolia.etherscan.io/tx/${certificate.txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
-              >
-                <ExternalLink className="h-3 w-3" />
-              </a>
+              {ETHERSCAN_BASE_URL && (
+                <a
+                  href={`${ETHERSCAN_BASE_URL}/tx/${certificate.txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  <ExternalLink className="h-3 w-3" />
+                </a>
+              )}
             </div>
           </div>
 

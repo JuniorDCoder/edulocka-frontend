@@ -3,7 +3,7 @@
 // ============================================================================
 
 import { ethers } from "ethers";
-import { CONTRACT_ADDRESS, CONTRACT_ABI, RPC_URL, TARGET_CHAIN_ID } from "./contract-config";
+import { CONTRACT_ADDRESS, CONTRACT_ABI, RPC_URL, TARGET_CHAIN_ID, FALLBACK_RPCS } from "./contract-config";
 import { Certificate } from "./types";
 import type { InstitutionInfo } from "./types";
 
@@ -11,6 +11,7 @@ import type { InstitutionInfo } from "./types";
 
 // Singleton provider — reuse one connection instead of creating a new one per call
 let _cachedProvider: ethers.JsonRpcProvider | null = null;
+let _triedFallbacks = false;
 
 const RATE_LIMIT_RETRY_DELAYS_MS = [400, 1000, 1800] as const;
 const RECENT_CERTIFICATES_CACHE_TTL = 30_000;
@@ -35,13 +36,27 @@ function isRateLimitedError(err: unknown): boolean {
 
   const code = String(maybeErr.code ?? maybeErr.info?.error?.code ?? "");
 
+  // Log RPC errors for debugging
+  if (code === "-32600" || code === "-32000" || code === "-32002" || code === "-32001") {
+    console.warn(
+      `[RPC Error ${code}] ${message || maybeErr.message || "Unknown error"}`,
+      maybeErr
+    );
+  }
+
   return (
     message.includes("too many requests") ||
     message.includes("rate limit") ||
     message.includes("429") ||
     message.includes("-32005") ||
+    message.includes("-32000") ||
+    message.includes("-32002") ||
+    message.includes("-32001") ||
     code === "429" ||
-    code === "-32005"
+    code === "-32005" ||
+    code === "-32000" ||
+    code === "-32002" ||
+    code === "-32001"
   );
 }
 
@@ -51,7 +66,16 @@ async function withRpcRateLimitRetry<T>(operation: () => Promise<T>): Promise<T>
       return await operation();
     } catch (err) {
       const canRetry = attempt < RATE_LIMIT_RETRY_DELAYS_MS.length && isRateLimitedError(err);
-      if (!canRetry) throw err;
+      if (!canRetry) {
+        console.error(
+          `[RPC Non-Retryable Error] Attempt ${attempt + 1}:`,
+          (err as any)?.code ?? (err as any)?.message ?? String(err)
+        );
+        throw err;
+      }
+      console.warn(
+        `[RPC Rate Limited] Attempt ${attempt + 1}, retrying in ${RATE_LIMIT_RETRY_DELAYS_MS[attempt]}ms...`
+      );
       await sleep(RATE_LIMIT_RETRY_DELAYS_MS[attempt]);
     }
   }
@@ -74,9 +98,41 @@ export function getReadProvider(): ethers.JsonRpcProvider {
       staticNetwork: true,       // Don't call eth_chainId on every request
       // Keep requests unbatched so a single throttled RPC call doesn't break the whole batch.
       batchMaxCount: 1,
+      pollingInterval: 4000,     // Reduce polling frequency to avoid RPC spam
     });
+    console.log(`[Contract] Created RPC provider for ${RPC_URL}`);
   }
   return _cachedProvider;
+}
+
+/** Attempt to fall back to a different RPC URL if primary is rate limited */
+export async function tryFallbackProvider(): Promise<ethers.JsonRpcProvider | null> {
+  if (_triedFallbacks || FALLBACK_RPCS.length === 0) return null;
+  
+  _triedFallbacks = true;
+  
+  for (const fallbackUrl of FALLBACK_RPCS) {
+    try {
+      console.log(`[Contract] Trying fallback RPC: ${fallbackUrl}`);
+      const provider = new ethers.JsonRpcProvider(fallbackUrl, undefined, {
+        staticNetwork: true,
+        batchMaxCount: 1,
+        pollingInterval: 4000,
+      });
+      
+      // Quick test to verify the provider works
+      await provider.getBlockNumber();
+      
+      _cachedProvider = provider;
+      console.log(`[Contract] Fallback RPC ${fallbackUrl} is working`);
+      return provider;
+    } catch (err) {
+      console.warn(`[Contract] Fallback RPC ${fallbackUrl} failed:`, (err as any)?.message);
+      continue;
+    }
+  }
+  
+  return null;
 }
 
 /** Get a BrowserProvider from MetaMask (for write functions — needs wallet) */
@@ -144,24 +200,45 @@ export async function getContractOwner(): Promise<string> {
 export async function getCertificateById(certId: string): Promise<Certificate | null> {
   try {
     const contract = getReadContract();
+    const provider = getReadProvider();
     const cert = await contract.getCertificate(certId);
 
-    // Find the tx that issued this cert by querying events
-    const filter = contract.filters.CertificateIssued(certId);
-    const events = await contract.queryFilter(filter);
-    const event = events[0];
-
+    // Find the tx that issued this cert by querying events with block range
+    // (Alchemy free tier limit: 10 block range)
     let txHash = "";
     let blockNumber = 0;
     let gasUsed = 0;
 
-    if (event) {
-      txHash = event.transactionHash;
-      blockNumber = event.blockNumber;
-      const receipt = await event.getTransactionReceipt();
-      if (receipt) {
-        gasUsed = Number(receipt.gasUsed);
+    try {
+      const filter = contract.filters.CertificateIssued(certId);
+      let events: any[] = [];
+      
+      // Try querying recent blocks first
+      const currentBlock = await provider.getBlockNumber();
+      const fromBlock = Math.max(0, currentBlock - 100);
+      const toBlock = currentBlock;
+      
+      events = await contract.queryFilter(filter, fromBlock, toBlock);
+
+      // If not found in recent blocks, try older blocks
+      if (events.length === 0 && currentBlock > 100) {
+        const olderFromBlock = Math.max(0, currentBlock - 1000);
+        const olderToBlock = Math.max(0, currentBlock - 100);
+        events = await contract.queryFilter(filter, olderFromBlock, olderToBlock);
       }
+
+      const event = events[0];
+      if (event) {
+        txHash = event.transactionHash;
+        blockNumber = event.blockNumber;
+        const receipt = await event.getTransactionReceipt();
+        if (receipt) {
+          gasUsed = Number(receipt.gasUsed);
+        }
+      }
+    } catch (eventErr) {
+      console.warn(`[getCertificateById] Failed to fetch events for ${certId}:`, (eventErr as any)?.message);
+      // Continue without event data — we have the certificate data
     }
 
     return {
@@ -201,10 +278,30 @@ export async function getCertificateByTxHash(txHash: string): Promise<Certificat
     // We can't decode the indexed string certId from the event topic,
     // so iterate stored cert IDs and match by tx hash
     const count = Number(await contract.getAllCertificateIdsCount());
+    const currentBlock = await provider.getBlockNumber();
+
     for (let i = 0; i < count; i++) {
       const certId: string = await contract.getCertificateIdByIndex(i);
       const filter = contract.filters.CertificateIssued(certId);
-      const certEvents = await contract.queryFilter(filter);
+      
+      let certEvents: any[] = [];
+      try {
+        // Query recent blocks first (Alchemy free tier: 10 block max range)
+        const fromBlock = Math.max(0, currentBlock - 100);
+        const toBlock = currentBlock;
+        certEvents = await contract.queryFilter(filter, fromBlock, toBlock);
+        
+        // If not found in recent, try older blocks
+        if (certEvents.length === 0 && currentBlock > 100) {
+          const olderFromBlock = Math.max(0, currentBlock - 1000);
+          const olderToBlock = Math.max(0, currentBlock - 100);
+          certEvents = await contract.queryFilter(filter, olderFromBlock, olderToBlock);
+        }
+      } catch (eventErr) {
+        console.warn(`[getCertificateByTxHash] Failed to query events for ${certId}:`, (eventErr as any)?.message);
+        continue;
+      }
+
       if (certEvents.length > 0 && certEvents[0].transactionHash.toLowerCase() === txHash.toLowerCase()) {
         return await getCertificateById(certId);
       }
@@ -296,9 +393,17 @@ export async function getRecentCertificates(limit: number = 5): Promise<Certific
   const request = (async () => {
     try {
       const contract = getReadContract();
-      const count = Number(
-        await withRpcRateLimitRetry(() => contract.getAllCertificateIdsCount())
-      );
+      
+      let count: number;
+      try {
+        count = Number(
+          await withRpcRateLimitRetry(() => contract.getAllCertificateIdsCount())
+        );
+      } catch (err) {
+        console.error("[Certificate Loader] Failed to get certificate count:", err);
+        _recentCertificatesCache.set(normalizedLimit, { data: [], timestamp: now });
+        return [];
+      }
 
       if (count === 0) {
         _recentCertificatesCache.set(normalizedLimit, { data: [], timestamp: now });
@@ -308,29 +413,74 @@ export async function getRecentCertificates(limit: number = 5): Promise<Certific
       const start = Math.max(0, count - normalizedLimit);
       const certificates: Certificate[] = [];
 
+      // Get current block number once for efficient event querying
+      let currentBlock: number = 0;
+      try {
+        const provider = getReadProvider();
+        currentBlock = await withRpcRateLimitRetry(() => provider.getBlockNumber());
+        console.log(`[Certificate Loader] Current block: ${currentBlock}`);
+      } catch (err) {
+        console.warn("[Certificate Loader] Failed to get current block number:", err);
+      }
+
       for (let i = count - 1; i >= start; i--) {
-        const certId = await withRpcRateLimitRetry(() => contract.getCertificateIdByIndex(i));
-        const cert = await withRpcRateLimitRetry(() => contract.getCertificate(certId));
+        try {
+          const certId = await withRpcRateLimitRetry(() => contract.getCertificateIdByIndex(i));
+          const cert = await withRpcRateLimitRetry(() => contract.getCertificate(certId));
 
-        // Query only this certificate event to capture tx hash and block number.
-        const filter = contract.filters.CertificateIssued(certId);
-        const events = await withRpcRateLimitRetry(() => contract.queryFilter(filter));
-        const event = events[0];
+          // Query events for this certificate, limited to recent blocks (Alchemy free tier: max 10 block range)
+          const filter = contract.filters.CertificateIssued(certId);
+          let events: any[] = [];
+          try {
+            // Start with the most recent 100 blocks to catch recent certificates
+            // If that doesn't work, fall back to searching older blocks in chunks
+            const toBlock = currentBlock;
+            const fromBlock = Math.max(0, currentBlock - 100); // Query last 100 blocks
 
-        certificates.push({
-          certId: String(certId),
-          txHash: event?.transactionHash ?? "",
-          blockNumber: event?.blockNumber ?? 0,
-          studentName: cert.studentName,
-          studentWallet: cert.issuer,
-          degree: cert.degree,
-          institution: cert.institution,
-          issueDate: new Date(Number(cert.issueDate) * 1000).toISOString().split("T")[0],
-          ipfsHash: cert.ipfsHash,
-          status: cert.isValid ? "verified" : "invalid",
-          gasUsed: 0,
-          networkFee: undefined,
-        });
+            console.log(`[Certificate Loader] Querying events for ${certId} from block ${fromBlock} to ${toBlock}`);
+            events = await withRpcRateLimitRetry(() =>
+              contract.queryFilter(filter, fromBlock, toBlock)
+            );
+
+            // If not found in recent blocks, try older blocks in smaller chunks
+            if (events.length === 0 && currentBlock > 100) {
+              console.log(
+                `[Certificate Loader] Certificate ${certId} not in recent blocks, searching older blocks...`
+              );
+              // Try blocks 100-1000 in the past
+              const olderFromBlock = Math.max(0, currentBlock - 1000);
+              const olderToBlock = Math.max(0, currentBlock - 100);
+              events = await withRpcRateLimitRetry(() =>
+                contract.queryFilter(filter, olderFromBlock, olderToBlock)
+              );
+            }
+          } catch (eventErr) {
+            console.warn(
+              `[Certificate Loader] Failed to query events for ${certId}:`,
+              (eventErr as any)?.message || eventErr
+            );
+            // Continue without event data — we have the certificate data already
+          }
+          const event = events[0];
+
+          certificates.push({
+            certId: String(certId),
+            txHash: event?.transactionHash ?? "",
+            blockNumber: event?.blockNumber ?? 0,
+            studentName: cert.studentName,
+            studentWallet: cert.issuer,
+            degree: cert.degree,
+            institution: cert.institution,
+            issueDate: new Date(Number(cert.issueDate) * 1000).toISOString().split("T")[0],
+            ipfsHash: cert.ipfsHash,
+            status: cert.isValid ? "verified" : "invalid",
+            gasUsed: 0,
+            networkFee: undefined,
+          });
+        } catch (itemErr) {
+          console.warn(`[Certificate Loader] Failed to load certificate at index ${i}:`, itemErr);
+          // Continue to next certificate instead of failing entirely
+        }
       }
 
       _recentCertificatesCache.set(normalizedLimit, {
@@ -339,7 +489,8 @@ export async function getRecentCertificates(limit: number = 5): Promise<Certific
       });
 
       return certificates;
-    } catch {
+    } catch (err) {
+      console.error("[Certificate Loader] Unexpected error:", err);
       return [];
     }
   })();
