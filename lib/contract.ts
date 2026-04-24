@@ -6,6 +6,7 @@ import { ethers } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, RPC_URL, TARGET_CHAIN_ID, FALLBACK_RPCS } from "./contract-config";
 import { Certificate } from "./types";
 import type { InstitutionInfo } from "./types";
+import { getCertificateData, listCertificatesFromBackend } from "./api-client";
 
 // ── Provider / Signer helpers ──────────────────────────────────────────────
 
@@ -199,6 +200,33 @@ export async function getContractOwner(): Promise<string> {
 /** Get a certificate by ID — returns our frontend Certificate type */
 export async function getCertificateById(certId: string): Promise<Certificate | null> {
   try {
+    // STRATEGY 1: Try backend database first (has reliable block number)
+    try {
+      const backendData = await getCertificateData(certId);
+      if (backendData && backendData.blockchain?.blockNumber && backendData.blockchain.blockNumber > 0) {
+        console.log(`[getCertificateById] Using backend data for ${certId}, block ${backendData.blockchain.blockNumber}`);
+        return {
+          certId: backendData.certId,
+          txHash: backendData.blockchain.txHash || "",
+          blockNumber: backendData.blockchain.blockNumber,
+          studentName: backendData.studentName,
+          studentWallet: backendData.studentWallet,
+          degree: backendData.degree,
+          institution: backendData.institution,
+          issueDate: backendData.issueDate,
+          ipfsHash: backendData.ipfs?.ipfsHash || "",
+          status: backendData.status === "issued" ? "verified" : 
+                  backendData.status === "revoked" ? "invalid" : 
+                  backendData.status || "verified",
+          gasUsed: backendData.blockchain?.gasUsed || 0,
+          networkFee: backendData.blockchain?.gasUsed ? `${(backendData.blockchain.gasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
+        };
+      }
+    } catch (backendErr) {
+      console.info(`[getCertificateById] Backend API not available, falling back to contract lookup:`, (backendErr as any)?.message);
+    }
+
+    // STRATEGY 2: Fallback to contract + event lookup
     const contract = getReadContract();
     const provider = getReadProvider();
     const cert = await contract.getCertificate(certId);
@@ -263,51 +291,74 @@ export async function getCertificateById(certId: string): Promise<Certificate | 
 /** Find a certificate by its transaction hash */
 export async function getCertificateByTxHash(txHash: string): Promise<Certificate | null> {
   try {
+    // STRATEGY 1: Try backend first
+    try {
+      const backendResults = await listCertificatesFromBackend({ txHash });
+      if (backendResults && backendResults.length > 0) {
+        const backendData = backendResults[0];
+        console.log(`[getCertificateByTxHash] Found cert ${backendData.certId} in backend for tx ${txHash}`);
+        return {
+          certId: backendData.certId,
+          txHash: backendData.blockchain?.txHash || txHash,
+          blockNumber: backendData.blockchain?.blockNumber || 0,
+          studentName: backendData.studentName,
+          studentWallet: backendData.studentWallet,
+          degree: backendData.degree,
+          institution: backendData.institution,
+          issueDate: backendData.issueDate,
+          ipfsHash: backendData.ipfs?.ipfsHash || "",
+          status: backendData.status === "issued" ? "verified" : 
+                  backendData.status === "revoked" ? "invalid" : 
+                  backendData.status || "verified",
+          gasUsed: backendData.blockchain?.gasUsed || 0,
+          networkFee: backendData.blockchain?.gasUsed ? `${(backendData.blockchain.gasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
+        };
+      }
+    } catch (backendErr) {
+      console.warn(`[getCertificateByTxHash] Backend lookup failed:`, (backendErr as any)?.message);
+    }
+
+    // STRATEGY 2: Smart Contract Event Filtering (Targeted)
     const provider = getReadProvider();
     const receipt = await provider.getTransactionReceipt(txHash);
-    if (!receipt || receipt.to?.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) return null;
+    if (!receipt) return null;
+
+    // Check if the transaction was to our contract
+    if (receipt.to?.toLowerCase() !== CONTRACT_ADDRESS.toLowerCase()) return null;
 
     const contract = getReadContract();
     const issuedFilter = contract.filters.CertificateIssued();
+    
+    // Query events only for this specific block
     const events = await contract.queryFilter(issuedFilter, receipt.blockNumber, receipt.blockNumber);
 
     // Find the event in this specific tx
-    const matchingEvent = events.find((e) => e.transactionHash.toLowerCase() === txHash.toLowerCase());
-    if (!matchingEvent) return null;
-
-    // We can't decode the indexed string certId from the event topic,
-    // so iterate stored cert IDs and match by tx hash
-    const count = Number(await contract.getAllCertificateIdsCount());
-    const currentBlock = await provider.getBlockNumber();
-
-    for (let i = 0; i < count; i++) {
-      const certId: string = await contract.getCertificateIdByIndex(i);
-      const filter = contract.filters.CertificateIssued(certId);
-      
-      let certEvents: any[] = [];
-      try {
-        // Query recent blocks first (Alchemy free tier: 10 block max range)
-        const fromBlock = Math.max(0, currentBlock - 100);
-        const toBlock = currentBlock;
-        certEvents = await contract.queryFilter(filter, fromBlock, toBlock);
-        
-        // If not found in recent, try older blocks
-        if (certEvents.length === 0 && currentBlock > 100) {
-          const olderFromBlock = Math.max(0, currentBlock - 1000);
-          const olderToBlock = Math.max(0, currentBlock - 100);
-          certEvents = await contract.queryFilter(filter, olderFromBlock, olderToBlock);
-        }
-      } catch (eventErr) {
-        console.warn(`[getCertificateByTxHash] Failed to query events for ${certId}:`, (eventErr as any)?.message);
-        continue;
-      }
-
-      if (certEvents.length > 0 && certEvents[0].transactionHash.toLowerCase() === txHash.toLowerCase()) {
+    const matchingEvent = (events as any[]).find((e) => e.transactionHash.toLowerCase() === txHash.toLowerCase());
+    
+    if (matchingEvent && matchingEvent.args) {
+      // The first argument of CertificateIssued is certificateId
+      const certId = matchingEvent.args[0] || matchingEvent.args.certificateId;
+      if (certId) {
+        console.log(`[getCertificateByTxHash] Decoded certId ${certId} from event in tx ${txHash}`);
         return await getCertificateById(certId);
       }
     }
+
+    // STRATEGY 3: Fallback (Heavy scanning - last resort)
+    const count = Number(await contract.getAllCertificateIdsCount());
+    // Only scan a limited number of recent certs to avoid hanging
+    const scanLimit = Math.min(count, 50); 
+    for (let i = count - 1; i >= count - scanLimit; i--) {
+      const certId: string = await contract.getCertificateIdByIndex(i);
+      const fullCert = await getCertificateById(certId);
+      if (fullCert && fullCert.txHash.toLowerCase() === txHash.toLowerCase()) {
+        return fullCert;
+      }
+    }
+
     return null;
-  } catch {
+  } catch (err) {
+    console.error(`[getCertificateByTxHash] Error:`, (err as any)?.message);
     return null;
   }
 }
@@ -315,11 +366,40 @@ export async function getCertificateByTxHash(txHash: string): Promise<Certificat
 /** Find all certificates issued by a wallet address */
 export async function getCertificatesByWallet(walletAddress: string): Promise<Certificate[]> {
   try {
+    // STRATEGY 1: Try backend first
+    try {
+      const backendResults = await listCertificatesFromBackend({ wallet: walletAddress });
+      if (backendResults && backendResults.length > 0) {
+        console.log(`[getCertificatesByWallet] Found ${backendResults.length} certs in backend for ${walletAddress}`);
+        return backendResults.map(backendData => ({
+          certId: backendData.certId,
+          txHash: backendData.blockchain?.txHash || "",
+          blockNumber: backendData.blockchain?.blockNumber || 0,
+          studentName: backendData.studentName,
+          studentWallet: backendData.studentWallet,
+          degree: backendData.degree,
+          institution: backendData.institution,
+          issueDate: backendData.issueDate,
+          ipfsHash: backendData.ipfs?.ipfsHash || "",
+          status: backendData.status === "issued" ? "verified" : 
+                  backendData.status === "revoked" ? "invalid" : 
+                  backendData.status || "verified",
+          gasUsed: backendData.blockchain?.gasUsed || 0,
+          networkFee: backendData.blockchain?.gasUsed ? `${(backendData.blockchain.gasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
+        }));
+      }
+    } catch (backendErr) {
+      console.warn(`[getCertificatesByWallet] Backend lookup failed:`, (backendErr as any)?.message);
+    }
+
+    // STRATEGY 2: On-chain scanning (Filtered & limited)
     const contract = getReadContract();
     const count = Number(await contract.getAllCertificateIdsCount());
     const results: Certificate[] = [];
 
-    for (let i = 0; i < count; i++) {
+    // Scan backwards, limited to 100 most recent for performance
+    const scanLimit = Math.min(count, 100);
+    for (let i = count - 1; i >= count - scanLimit; i--) {
       const certId: string = await contract.getCertificateIdByIndex(i);
       const cert = await contract.getCertificate(certId);
       if (cert.issuer.toLowerCase() === walletAddress.toLowerCase()) {
@@ -328,7 +408,8 @@ export async function getCertificatesByWallet(walletAddress: string): Promise<Ce
       }
     }
     return results;
-  } catch {
+  } catch (err) {
+    console.error(`[getCertificatesByWallet] Error:`, (err as any)?.message);
     return [];
   }
 }
@@ -426,6 +507,36 @@ export async function getRecentCertificates(limit: number = 5): Promise<Certific
       for (let i = count - 1; i >= start; i--) {
         try {
           const certId = await withRpcRateLimitRetry(() => contract.getCertificateIdByIndex(i));
+          
+          // STRATEGY 1: Try backend database first
+          let backendCert: any = null;
+          try {
+            backendCert = await getCertificateData(certId);
+            if (backendCert && backendCert.blockchain?.blockNumber && backendCert.blockchain.blockNumber > 0) {
+              console.log(`[Certificate Loader] Using backend data for ${certId}, block ${backendCert.blockchain.blockNumber}`);
+              certificates.push({
+                certId: backendCert.certId,
+                txHash: backendCert.blockchain.txHash || "",
+                blockNumber: backendCert.blockchain.blockNumber,
+                studentName: backendCert.studentName,
+                studentWallet: backendCert.studentWallet,
+                degree: backendCert.degree,
+                institution: backendCert.institution,
+                issueDate: backendCert.issueDate,
+                ipfsHash: backendCert.ipfs?.ipfsHash || "",
+                status: backendCert.status === "issued" ? "verified" : 
+                        backendCert.status === "revoked" ? "invalid" : 
+                        backendCert.status || "verified",
+                gasUsed: backendCert.blockchain?.gasUsed || 0,
+                networkFee: backendCert.blockchain?.gasUsed ? `${(backendCert.blockchain.gasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
+              });
+              continue;
+            }
+          } catch (backendErr) {
+            console.debug(`[Certificate Loader] Backend not available for ${certId}, using contract lookup`);
+          }
+
+          // STRATEGY 2: Fallback to contract + event lookup
           const cert = await withRpcRateLimitRetry(() => contract.getCertificate(certId));
 
           // Query events for this certificate, limited to recent blocks (Alchemy free tier: max 10 block range)

@@ -51,7 +51,7 @@ export function CertificateCard({ certificate, compact = false }: CertificateCar
     },
   };
 
-  const status = statusConfig[certificate.status];
+  const status = statusConfig[certificate.status as keyof typeof statusConfig] || statusConfig.invalid;
   const StatusIcon = status.icon;
 
   if (compact) {

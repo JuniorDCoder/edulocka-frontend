@@ -419,6 +419,35 @@ export async function verifyCertificateViaBackend(
   return apiFetch(`/api/certificates/verify/${certId}`);
 }
 
+/** Fetch certificate data from backend database (with actual block number) */
+export async function getCertificateData(
+  certId: string
+): Promise<any> {
+  try {
+    return await apiFetch(`/api/certificates/${certId}/data`);
+  } catch (err) {
+    console.warn(`Failed to fetch certificate data for ${certId}:`, err);
+    return null;
+  }
+}
+
+/** List certificates from backend by wallet or txHash */
+export async function listCertificatesFromBackend(params: {
+  wallet?: string;
+  txHash?: string;
+}): Promise<any[]> {
+  try {
+    const query = new URLSearchParams();
+    if (params.wallet) query.set("wallet", params.wallet);
+    if (params.txHash) query.set("txHash", params.txHash);
+    const qs = query.toString() ? `?${query.toString()}` : "";
+    return await apiFetch<any[]>(`/api/certificates${qs}`);
+  } catch (err) {
+    console.warn("Failed to list certificates from backend:", err);
+    return [];
+  }
+}
+
 /** Verify an uploaded certificate document by hashing and comparing with on-chain IPFS file */
 export async function verifyCertificateDocumentFile(
   certId: string,

@@ -55,7 +55,9 @@ function VerifyPageContent() {
   const [searchType, setSearchType] = useState<"cert" | "tx" | "wallet">("cert");
   const [isSearching, setIsSearching] = useState(false);
   const [result, setResult] = useState<Certificate | null>(null);
+  const [results, setResults] = useState<Certificate[]>([]);
   const [notFound, setNotFound] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [documentCertId, setDocumentCertId] = useState(initialCertId);
@@ -65,7 +67,9 @@ function VerifyPageContent() {
   const lastAutoSearchRef = useRef<string | null>(null);
   const clearSearchOutcome = useCallback(() => {
     setResult(null);
+    setResults([]);
     setNotFound(false);
+    setErrorMsg(null);
     setPdfUrl(null);
   }, []);
   const clearDocumentOutcome = useCallback(() => {
@@ -102,12 +106,15 @@ function VerifyPageContent() {
       } else if (type === "wallet") {
         const certs = await getCertificatesByWallet(query.trim());
         if (certs.length > 0) {
+          setResults(certs);
           setResult(certs[0]);
         } else {
           setNotFound(true);
         }
       }
-    } catch {
+    } catch (err: any) {
+      console.error("Search error:", err);
+      setErrorMsg(err.message || "An unexpected error occurred during search.");
       setNotFound(true);
     }
 
@@ -515,13 +522,57 @@ function VerifyPageContent() {
               Certificate Not Found
             </h3>
             <p className="mt-2 text-sm text-red-600 dark:text-red-400/70">
-              No certificate matching &quot;{searchQuery}&quot; was found on the
-              blockchain. Please check the ID and try again.
+              {errorMsg || `No certificate matching "${searchQuery}" was found. Please check the ID and try again.`}
             </p>
           </div>
         )}
 
         {/* Result */}
+        {results.length > 1 && !isSearching && (
+          <div className="mx-auto mb-8 max-w-4xl">
+            <div className="flex items-center justify-between border-b border-gray-200 pb-2 dark:border-gray-700">
+              <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                Found {results.length} Certificates
+              </h3>
+              <span className="text-xs text-gray-500">Click to view details</span>
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {results.map((cert) => (
+                <button
+                  key={cert.certId}
+                  onClick={() => {
+                    setResult(cert);
+                    try {
+                      setPdfUrl(getCertificatePdfUrl(cert.certId));
+                    } catch { /* optional */ }
+                  }}
+                  className={`flex flex-col text-left transition-all ${
+                    result?.certId === cert.certId
+                      ? "border-blue-600 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20"
+                      : "border-gray-200 bg-white hover:border-gray-300 dark:border-gray-700 dark:bg-gray-800"
+                  } border-2 p-3`}
+                >
+                  <code className="text-[10px] font-bold text-blue-600 dark:text-blue-400">
+                    {cert.certId}
+                  </code>
+                  <p className="mt-1 truncate text-xs font-bold text-gray-900 dark:text-white">
+                    {cert.studentName}
+                  </p>
+                  <p className="truncate text-[11px] text-gray-500 dark:text-gray-400">
+                    {cert.degree}
+                  </p>
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-[10px] text-gray-400">{cert.issueDate}</span>
+                    <span className={`h-1.5 w-1.5 rounded-full ${
+                      cert.status === "verified" ? "bg-green-500" : "bg-red-500"
+                    }`} />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {result && !isSearching && (
           <div className="mx-auto mt-8 max-w-4xl">
             {/* Status Banner */}
