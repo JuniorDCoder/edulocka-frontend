@@ -12,6 +12,8 @@ import {
   getTotalInstitutions,
   getTotalRevocations,
 } from "@/lib/contract";
+import { getMyInstitutionInfo } from "@/lib/api-client";
+import { ApplicationStatusBadge } from "@/components/application-status-badge";
 import Link from "next/link";
 import {
   Wallet,
@@ -35,6 +37,7 @@ export default function DashboardPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(true);
+  const [institutionApp, setInstitutionApp] = useState<any>(null);
   const [stats, setStats] = useState({ total: 0, institutions: 0, revocations: 0 });
   const [networkInfo, setNetworkInfo] = useState({
     name: "Connecting...", chainId: 0, gasPrice: "— Gwei", blockNumber: 0, isTestnet: true,
@@ -50,6 +53,19 @@ export default function DashboardPage() {
     const fetchData = async () => {
       setLoading(true);
       try {
+        // Fetch institution info if user has a wallet
+        if (wallet.address) {
+          const timestamp = Math.floor(Date.now() / 1000);
+          const message = `Edulocka Auth: ${timestamp}`;
+          try {
+            const signature = await wallet.signMessage(message);
+            const info = await getMyInstitutionInfo(wallet.address, signature, message);
+            setInstitutionApp(info.application);
+          } catch (err) {
+            console.warn("Failed to fetch institution info:", err);
+          }
+        }
+
         const [certs, total, institutions, revocations, info] = await Promise.allSettled([
           getAllCertificates(),
           getTotalCertificates(),
@@ -162,13 +178,29 @@ export default function DashboardPage() {
               <NetworkBadge name={networkInfo.name} isTestnet={networkInfo.isTestnet} compact />
             </div>
           </div>
-          <Link
-            href="/issue"
-            className="flex items-center gap-2 rounded-none border-2 border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500 dark:hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]"
-          >
-            <Plus className="h-4 w-4" />
-            Issue Certificate
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            {institutionApp && (
+              <div className="flex items-center gap-3 rounded-none border border-gray-200 bg-white px-4 py-2 dark:border-gray-700 dark:bg-gray-900">
+                <div className="flex flex-col">
+                  <span className="text-[10px] uppercase tracking-wider text-gray-400">Institution App</span>
+                  <div className="flex items-center gap-2">
+                    <code className="font-mono text-xs font-bold text-gray-900 dark:text-white">{String(institutionApp.id).slice(-8)}...</code>
+                    <button onClick={() => handleCopy(String(institutionApp.id), "app-id")} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                      {copied === "app-id" ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
+                    </button>
+                    <ApplicationStatusBadge status={institutionApp.status} size="sm" />
+                  </div>
+                </div>
+              </div>
+            )}
+            <Link
+              href="/issue"
+              className="flex items-center gap-2 rounded-none border-2 border-blue-600 bg-blue-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500 dark:hover:shadow-[0_0_15px_rgba(59,130,246,0.4)]"
+            >
+              <Plus className="h-4 w-4" />
+              Issue Certificate
+            </Link>
+          </div>
         </div>
 
         {/* Stats Cards */}

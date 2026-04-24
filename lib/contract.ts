@@ -199,16 +199,25 @@ export async function getContractOwner(): Promise<string> {
 
 /** Get a certificate by ID — returns our frontend Certificate type */
 export async function getCertificateById(certId: string): Promise<Certificate | null> {
+  // Find the tx that issued this cert by querying events with block range
+  // (Alchemy free tier limit: 10 block range)
+  let foundTxHash = "";
+  let foundBlockNumber = 0;
+  let foundGasUsed = 0;
+
   try {
-    // STRATEGY 1: Try backend database first (has reliable block number)
-    try {
-      const backendData = await getCertificateData(certId);
-      if (backendData && backendData.blockchain?.blockNumber && backendData.blockchain.blockNumber > 0) {
-        console.log(`[getCertificateById] Using backend data for ${certId}, block ${backendData.blockchain.blockNumber}`);
+    const backendData = await getCertificateData(certId);
+    if (backendData && backendData.blockchain) {
+      foundTxHash = backendData.blockchain.txHash || "";
+      foundBlockNumber = backendData.blockchain.blockNumber || 0;
+      foundGasUsed = backendData.blockchain.gasUsed || 0;
+        
+      if (foundBlockNumber > 0) {
+        console.log(`[getCertificateById] Using backend data for ${certId}, block ${foundBlockNumber}`);
         return {
           certId: backendData.certId,
-          txHash: backendData.blockchain.txHash || "",
-          blockNumber: backendData.blockchain.blockNumber,
+          txHash: foundTxHash,
+          blockNumber: foundBlockNumber,
           studentName: backendData.studentName,
           studentWallet: backendData.studentWallet,
           degree: backendData.degree,
@@ -218,74 +227,91 @@ export async function getCertificateById(certId: string): Promise<Certificate | 
           status: backendData.status === "issued" ? "verified" : 
                   backendData.status === "revoked" ? "invalid" : 
                   backendData.status || "verified",
-          gasUsed: backendData.blockchain?.gasUsed || 0,
-          networkFee: backendData.blockchain?.gasUsed ? `${(backendData.blockchain.gasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
+          gasUsed: foundGasUsed,
+          networkFee: foundGasUsed ? `${(foundGasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
         };
       }
-    } catch (backendErr) {
-      console.info(`[getCertificateById] Backend API not available, falling back to contract lookup:`, (backendErr as any)?.message);
+      console.log(`[getCertificateById] Backend data for ${certId} has txHash ${foundTxHash} but blockNumber is 0. Will attempt fallback.`);
     }
-
-    // STRATEGY 2: Fallback to contract + event lookup
-    const contract = getReadContract();
-    const provider = getReadProvider();
-    const cert = await contract.getCertificate(certId);
-
-    // Find the tx that issued this cert by querying events with block range
-    // (Alchemy free tier limit: 10 block range)
-    let txHash = "";
-    let blockNumber = 0;
-    let gasUsed = 0;
-
-    try {
-      const filter = contract.filters.CertificateIssued(certId);
-      let events: any[] = [];
-      
-      // Try querying recent blocks first
-      const currentBlock = await provider.getBlockNumber();
-      const fromBlock = Math.max(0, currentBlock - 100);
-      const toBlock = currentBlock;
-      
-      events = await contract.queryFilter(filter, fromBlock, toBlock);
-
-      // If not found in recent blocks, try older blocks
-      if (events.length === 0 && currentBlock > 100) {
-        const olderFromBlock = Math.max(0, currentBlock - 1000);
-        const olderToBlock = Math.max(0, currentBlock - 100);
-        events = await contract.queryFilter(filter, olderFromBlock, olderToBlock);
-      }
-
-      const event = events[0];
-      if (event) {
-        txHash = event.transactionHash;
-        blockNumber = event.blockNumber;
-        const receipt = await event.getTransactionReceipt();
-        if (receipt) {
-          gasUsed = Number(receipt.gasUsed);
-        }
-      }
-    } catch (eventErr) {
-      console.warn(`[getCertificateById] Failed to fetch events for ${certId}:`, (eventErr as any)?.message);
-      // Continue without event data — we have the certificate data
-    }
-
-    return {
-      certId,
-      txHash,
-      blockNumber,
-      studentName: cert.studentName,
-      studentWallet: cert.issuer,
-      degree: cert.degree,
-      institution: cert.institution,
-      issueDate: new Date(Number(cert.issueDate) * 1000).toISOString().split("T")[0],
-      ipfsHash: cert.ipfsHash,
-      status: cert.isValid ? "verified" : "invalid",
-      gasUsed,
-      networkFee: gasUsed > 0 ? `${(gasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
-    };
-  } catch {
-    return null;
+  } catch (backendErr) {
+    console.info(`[getCertificateById] Backend API not available, falling back to contract lookup:`, (backendErr as any)?.message);
   }
+
+  // STRATEGY 2: Fallback to contract + event lookup
+  const contract = getReadContract();
+  const provider = getReadProvider();
+  const cert = await contract.getCertificate(certId);
+
+  try {
+    const filter = contract.filters.CertificateIssued(certId);
+    let events: any[] = [];
+      
+    // Try querying recent blocks first
+    const currentBlock = await provider.getBlockNumber();
+    const fromBlock = Math.max(0, currentBlock - 100);
+    const toBlock = currentBlock;
+      
+    events = await contract.queryFilter(filter, fromBlock, toBlock);
+
+    // If not found in recent blocks, try older blocks
+    if (events.length === 0 && currentBlock > 100) {
+      const olderFromBlock = Math.max(0, currentBlock - 2000);
+      const olderToBlock = Math.max(0, currentBlock - 100);
+      events = await contract.queryFilter(filter, olderFromBlock, olderToBlock);
+    }
+
+    const event = (events as any[])[0];
+    if (event) {
+      foundTxHash = event.transactionHash;
+      foundBlockNumber = event.blockNumber;
+      const receipt = await event.getTransactionReceipt();
+      if (receipt) {
+        foundGasUsed = Number(receipt.gasUsed);
+      }
+    } else if (foundTxHash && foundTxHash !== "unknown" && foundTxHash.startsWith("0x")) {
+      // STRATEGY 2.5: If we have a txHash but no event, try getting the block number from the receipt directly
+      console.log(`[getCertificateById] Event not found but txHash ${foundTxHash} is known, fetching receipt...`);
+      try {
+        const receipt = await provider.getTransactionReceipt(foundTxHash);
+        if (receipt) {
+          foundBlockNumber = receipt.blockNumber;
+          foundGasUsed = Number(receipt.gasUsed);
+        }
+      } catch (receiptErr) {
+        console.warn(`[getCertificateById] Failed to fetch receipt for ${foundTxHash}:`, (receiptErr as any)?.message);
+      }
+    }
+  } catch (eventErr) {
+    console.warn(`[getCertificateById] Failed to fetch events for ${certId}:`, (eventErr as any)?.message);
+      
+    // Fallback for Strategy 2: If event query fails but we have some info
+    if (foundTxHash && foundTxHash !== "unknown" && foundTxHash.startsWith("0x") && foundBlockNumber === 0) {
+      try {
+        const receipt = await provider.getTransactionReceipt(foundTxHash);
+        if (receipt) {
+          foundBlockNumber = receipt.blockNumber;
+          foundGasUsed = Number(receipt.gasUsed);
+        }
+      } catch (receiptErr) {
+        // ignore
+      }
+    }
+  }
+
+  return {
+    certId,
+    txHash: foundTxHash,
+    blockNumber: foundBlockNumber,
+    studentName: cert.studentName,
+    studentWallet: cert.issuer,
+    degree: cert.degree,
+    institution: cert.institution,
+    issueDate: new Date(Number(cert.issueDate) * 1000).toISOString().split("T")[0],
+    ipfsHash: cert.ipfsHash,
+    status: cert.isValid ? "verified" : "invalid",
+    gasUsed: foundGasUsed,
+    networkFee: foundGasUsed > 0 ? `${(foundGasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
+  };
 }
 
 /** Find a certificate by its transaction hash */
@@ -340,7 +366,33 @@ export async function getCertificateByTxHash(txHash: string): Promise<Certificat
       const certId = matchingEvent.args[0] || matchingEvent.args.certificateId;
       if (certId) {
         console.log(`[getCertificateByTxHash] Decoded certId ${certId} from event in tx ${txHash}`);
-        return await getCertificateById(certId);
+        const fullCert = await getCertificateById(certId);
+        if (fullCert) {
+          return {
+            ...fullCert,
+            txHash, // Ensure we use the exact txHash searched
+          };
+        }
+      }
+    }
+
+    // STRATEGY 2.5: If event lookup failed, but we have a valid receipt, try to see if we can get certId from logs
+    if (receipt && receipt.logs) {
+      console.log(`[getCertificateByTxHash] Searching logs in receipt for ${txHash}`);
+      for (const log of receipt.logs) {
+        try {
+          const parsedLog = contract.interface.parseLog(log);
+          if (parsedLog && parsedLog.name === "CertificateIssued") {
+            const certId = parsedLog.args[0] || parsedLog.args.certificateId;
+            if (certId) {
+              console.log(`[getCertificateByTxHash] Decoded certId ${certId} from receipt logs for tx ${txHash}`);
+              const fullCert = await getCertificateById(certId);
+              if (fullCert) return { ...fullCert, txHash };
+            }
+          }
+        } catch (e) {
+          // Not our event or can't parse
+        }
       }
     }
 
@@ -351,8 +403,11 @@ export async function getCertificateByTxHash(txHash: string): Promise<Certificat
     for (let i = count - 1; i >= count - scanLimit; i--) {
       const certId: string = await contract.getCertificateIdByIndex(i);
       const fullCert = await getCertificateById(certId);
-      if (fullCert && fullCert.txHash.toLowerCase() === txHash.toLowerCase()) {
-        return fullCert;
+      if (fullCert && fullCert.txHash && fullCert.txHash.toLowerCase() === txHash.toLowerCase()) {
+        return {
+          ...fullCert,
+          txHash,
+        };
       }
     }
 

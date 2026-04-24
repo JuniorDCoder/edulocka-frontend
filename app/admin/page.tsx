@@ -848,9 +848,14 @@ export default function AdminPage() {
                 <h2 className="font-mono text-xl font-bold text-gray-900 dark:text-white">
                   {String(selectedApp.institutionName)}
                 </h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  Application #{String(selectedApp._id).slice(-8)}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Application #{String(selectedApp._id)}
+                  </p>
+                  <button onClick={() => copyToClipboard(String(selectedApp._id))} className="text-gray-400 hover:text-blue-600">
+                    {copied === String(selectedApp._id) ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
               </div>
               <ApplicationStatusBadge status={String(selectedApp.status)} size="md" />
             </div>
