@@ -222,6 +222,14 @@ async function getWalletAuthHeaders(wallet: WalletAuth): Promise<Record<string, 
   };
 }
 
+export function getWalletAuth(wallet: import("./types").WalletState): WalletAuth | null {
+  if (!wallet.connected || !wallet.address || !wallet.signer) return null;
+  return {
+    address: wallet.address,
+    signMessage: (message: string) => wallet.signer!.signMessage(message),
+  };
+}
+
 export interface SingleIssueResult {
   success: boolean;
   certId: string;

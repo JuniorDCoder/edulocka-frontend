@@ -12,7 +12,7 @@ import {
   getTotalInstitutions,
   getTotalRevocations,
 } from "@/lib/contract";
-import { getMyInstitutionInfo } from "@/lib/api-client";
+import { getMyInstitutionInfo, getWalletAuth } from "@/lib/api-client";
 import { ApplicationStatusBadge } from "@/components/application-status-badge";
 import Link from "next/link";
 import {
@@ -55,14 +55,17 @@ export default function DashboardPage() {
       try {
         // Fetch institution info if user has a wallet
         if (wallet.address) {
-          const timestamp = Math.floor(Date.now() / 1000);
-          const message = `Edulocka Auth: ${timestamp}`;
-          try {
-            const signature = await wallet.signMessage(message);
-            const info = await getMyInstitutionInfo(wallet.address, signature, message);
-            setInstitutionApp(info.application);
-          } catch (err) {
-            console.warn("Failed to fetch institution info:", err);
+          const auth = getWalletAuth(wallet);
+          if (auth) {
+            try {
+              const timestamp = Math.floor(Date.now() / 1000);
+              const message = `Edulocka Auth: ${timestamp}`;
+              const signature = await auth.signMessage(message);
+              const info = await getMyInstitutionInfo(wallet.address, signature, message);
+              setInstitutionApp(info.application);
+            } catch (err) {
+              console.warn("Failed to fetch institution info:", err);
+            }
           }
         }
 
