@@ -456,6 +456,16 @@ export async function listCertificatesFromBackend(params: {
   }
 }
 
+/** Get most recent certificates from backend database */
+export async function getRecentCertificatesFromBackend(limit: number = 10): Promise<any[]> {
+  try {
+    return await apiFetch<any[]>(`/api/certificates/recent?limit=${limit}`);
+  } catch (err) {
+    console.warn("Failed to fetch recent certificates from backend:", err);
+    return [];
+  }
+}
+
 /** Verify an uploaded certificate document by hashing and comparing with on-chain IPFS file */
 export async function verifyCertificateDocumentFile(
   certId: string,

@@ -6,7 +6,7 @@ import { ethers } from "ethers";
 import { CONTRACT_ADDRESS, CONTRACT_ABI, RPC_URL, TARGET_CHAIN_ID, FALLBACK_RPCS } from "./contract-config";
 import { Certificate } from "./types";
 import type { InstitutionInfo } from "./types";
-import { getCertificateData, listCertificatesFromBackend } from "./api-client";
+import { getCertificateData, listCertificatesFromBackend, getRecentCertificatesFromBackend } from "./api-client";
 
 // ── Provider / Signer helpers ──────────────────────────────────────────────
 
@@ -528,6 +528,39 @@ export async function getRecentCertificates(limit: number = 5): Promise<Certific
 
   const request = (async () => {
     try {
+      // STRATEGY 1: Try fetching everything from backend first (fastest & most reliable for recent)
+      try {
+        const backendCerts = await getRecentCertificatesFromBackend(normalizedLimit);
+        if (backendCerts && backendCerts.length > 0) {
+          const mappedCerts: Certificate[] = backendCerts.map((bc: any) => ({
+            certId: bc.certId,
+            txHash: bc.blockchain?.txHash || "",
+            blockNumber: bc.blockchain?.blockNumber || 0,
+            studentName: bc.studentName,
+            studentWallet: bc.studentWallet,
+            degree: bc.degree,
+            institution: bc.institution,
+            issueDate: bc.issueDate,
+            ipfsHash: bc.ipfs?.ipfsHash || "",
+            status: bc.status === "issued" ? "verified" : 
+                    bc.status === "revoked" ? "invalid" : 
+                    bc.status || "verified",
+            gasUsed: bc.blockchain?.gasUsed || 0,
+            networkFee: bc.blockchain?.gasUsed ? `${(bc.blockchain.gasUsed * 0.000000001).toFixed(6)} ETH` : undefined,
+          }));
+
+          // If we got enough certificates from backend, use them directly
+          if (mappedCerts.length >= normalizedLimit) {
+            console.log(`[Certificate Loader] Loaded ${mappedCerts.length} certificates from backend`);
+            _recentCertificatesCache.set(normalizedLimit, { data: mappedCerts, timestamp: Date.now() });
+            return mappedCerts;
+          }
+        }
+      } catch (err) {
+        console.warn("[Certificate Loader] Backend recent fetch failed, falling back to blockchain scan:", err);
+      }
+
+      // STRATEGY 2: Fallback to manual blockchain scan (legacy mode)
       const contract = getReadContract();
       
       let count: number;
