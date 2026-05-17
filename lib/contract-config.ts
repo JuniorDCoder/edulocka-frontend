@@ -46,6 +46,10 @@ export const HARDHAT_RPC_URL = RPC_URL;
 export const ETHERSCAN_BASE_URL =
   ACTIVE_NETWORK === "local" ? "" : "https://sepolia.etherscan.io";
 
+// Full Etherscan contract URL
+export const ETHERSCAN_CONTRACT_URL = 
+  ETHERSCAN_BASE_URL ? `${ETHERSCAN_BASE_URL}/address/${CONTRACT_ADDRESS}` : "";
+
 export const IS_LOCAL = ACTIVE_NETWORK === "local";
 
 // Minimal ABI — only the functions/events we use from the frontend

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Github, ExternalLink, GraduationCap, Link as LinkIcon, Mail, Phone } from "lucide-react";
-import { CONTRACT_ADDRESS, ETHERSCAN_BASE_URL } from "@/lib/contract-config";
+import { CONTRACT_ADDRESS, ETHERSCAN_BASE_URL, ETHERSCAN_CONTRACT_URL } from "@/lib/contract-config";
 import { truncateAddress } from "@/lib/mock-data";
 import { getNetworkInfo } from "@/lib/contract";
 import { useWallet } from "@/lib/wallet-context";
@@ -123,9 +123,9 @@ export function Footer() {
                 </code>
               </div>
               <div className="flex gap-2">
-                {ETHERSCAN_BASE_URL && (
+                {ETHERSCAN_CONTRACT_URL && (
                   <a
-                    href={ETHERSCAN_BASE_URL}
+                    href={ETHERSCAN_CONTRACT_URL}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1 text-xs text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
