@@ -204,6 +204,19 @@ export interface TemplateInfo {
   owner: string; // "default" or wallet address
 }
 
+export interface AiTemplateMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface GenerateAiTemplateInput {
+  prompt: string;
+  templateName: string;
+  institutionName?: string;
+  tone?: string;
+  colorPalette?: string;
+}
+
 // ── Wallet auth header helper ───────────────────────────────────────────────
 
 export interface WalletAuth {
@@ -365,6 +378,86 @@ export async function uploadTemplate(file: File, wallet: WalletAuth): Promise<{
   return apiFetch("/api/templates/upload", {
     method: "POST",
     body: formData,
+    headers: authHeaders,
+  });
+}
+
+/** Generate a certificate template with Gemini AI and save it as an institution template. */
+export async function generateAiTemplate(
+  input: GenerateAiTemplateInput,
+  wallet: WalletAuth
+): Promise<{
+  success: boolean;
+  templateId: string;
+  owner: string;
+  message: string;
+  placeholders: string[];
+  previewHtml: string;
+}> {
+  const authHeaders = await getWalletAuthHeaders(wallet);
+  return apiFetch("/api/templates/generate-ai", {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify(input),
+  });
+}
+
+/** Save or overwrite an institution-owned HTML template. */
+export async function saveTemplateHtml(
+  templateId: string,
+  html: string,
+  wallet: WalletAuth,
+  institutionName?: string
+): Promise<{
+  success: boolean;
+  templateId: string;
+  owner: string;
+  message: string;
+  previewHtml: string;
+}> {
+  const authHeaders = await getWalletAuthHeaders(wallet);
+  return apiFetch(`/api/templates/${encodeURIComponent(templateId)}`, {
+    method: "PUT",
+    headers: authHeaders,
+    body: JSON.stringify({ html, institutionName }),
+  });
+}
+
+/** Improve an institution-owned template with Gemini AI. */
+export async function editTemplateWithAi(
+  templateId: string,
+  prompt: string,
+  wallet: WalletAuth,
+  institutionName?: string
+): Promise<{
+  success: boolean;
+  templateId: string;
+  owner: string;
+  message: string;
+  placeholders: string[];
+  previewHtml: string;
+}> {
+  const authHeaders = await getWalletAuthHeaders(wallet);
+  return apiFetch(`/api/templates/${encodeURIComponent(templateId)}/edit-ai`, {
+    method: "POST",
+    headers: authHeaders,
+    body: JSON.stringify({ prompt, institutionName }),
+  });
+}
+
+/** Delete an institution-owned template. */
+export async function deleteTemplate(
+  templateId: string,
+  wallet: WalletAuth
+): Promise<{
+  success: boolean;
+  templateId: string;
+  owner: string;
+  message: string;
+}> {
+  const authHeaders = await getWalletAuthHeaders(wallet);
+  return apiFetch(`/api/templates/${encodeURIComponent(templateId)}`, {
+    method: "DELETE",
     headers: authHeaders,
   });
 }
