@@ -272,6 +272,7 @@ export interface VerifyResult {
 export interface DocumentVerificationResult {
   exists: boolean;
   certId: string;
+  lookup?: "certId" | "documentHash";
   certificate: {
     isValid: boolean;
     studentName: string;
@@ -299,6 +300,41 @@ export interface DocumentVerificationResult {
   };
   verified: boolean;
   verifyUrl: string;
+}
+
+export interface BackendCertificateRecord {
+  certId: string;
+  studentName: string;
+  studentId?: string | null;
+  studentWallet: string;
+  degree: string;
+  institution: string;
+  issueDate: string;
+  status: "issued" | "revoked" | "verified" | "pending" | "invalid";
+  blockchain?: {
+    txHash?: string | null;
+    blockNumber?: number | null;
+    gasUsed?: number | null;
+    issuedAt?: string;
+  };
+  ipfs?: {
+    documentHash?: string | null;
+    ipfsHash?: string | null;
+    pinned?: boolean;
+    gateway?: string | null;
+  };
+  ipfsHash?: string;
+  qr?: {
+    saved?: boolean;
+    filePath?: string | null;
+  };
+  email?: {
+    sent?: boolean;
+    sentAt?: string | null;
+    error?: string | null;
+  };
+  createdAt?: string;
+  warning?: string;
 }
 
 // ── Bulk Issuance ───────────────────────────────────────────────────────────
@@ -523,9 +559,9 @@ export async function verifyCertificateViaBackend(
 /** Fetch certificate data from backend database (with actual block number) */
 export async function getCertificateData(
   certId: string
-): Promise<any> {
+): Promise<BackendCertificateRecord | null> {
   try {
-    return await apiFetch(`/api/certificates/${certId}/data`);
+    return await apiFetch<BackendCertificateRecord>(`/api/certificates/${certId}/data`);
   } catch (err) {
     console.warn(`Failed to fetch certificate data for ${certId}:`, err);
     return null;
@@ -536,13 +572,13 @@ export async function getCertificateData(
 export async function listCertificatesFromBackend(params: {
   wallet?: string;
   txHash?: string;
-}): Promise<any[]> {
+}): Promise<BackendCertificateRecord[]> {
   try {
     const query = new URLSearchParams();
     if (params.wallet) query.set("wallet", params.wallet);
     if (params.txHash) query.set("txHash", params.txHash);
     const qs = query.toString() ? `?${query.toString()}` : "";
-    return await apiFetch<any[]>(`/api/certificates${qs}`);
+    return await apiFetch<BackendCertificateRecord[]>(`/api/certificates${qs}`);
   } catch (err) {
     console.warn("Failed to list certificates from backend:", err);
     return [];
@@ -550,9 +586,9 @@ export async function listCertificatesFromBackend(params: {
 }
 
 /** Get most recent certificates from backend database */
-export async function getRecentCertificatesFromBackend(limit: number = 10): Promise<any[]> {
+export async function getRecentCertificatesFromBackend(limit: number = 10): Promise<BackendCertificateRecord[]> {
   try {
-    return await apiFetch<any[]>(`/api/certificates/recent?limit=${limit}`);
+    return await apiFetch<BackendCertificateRecord[]>(`/api/certificates/recent?limit=${limit}`);
   } catch (err) {
     console.warn("Failed to fetch recent certificates from backend:", err);
     return [];
@@ -561,11 +597,12 @@ export async function getRecentCertificatesFromBackend(limit: number = 10): Prom
 
 /** Verify an uploaded certificate document by hashing and comparing with on-chain IPFS file */
 export async function verifyCertificateDocumentFile(
-  certId: string,
+  certId: string | null | undefined,
   file: File
 ): Promise<DocumentVerificationResult> {
   const formData = new FormData();
-  formData.append("certId", certId);
+  const normalizedCertId = certId?.trim();
+  if (normalizedCertId) formData.append("certId", normalizedCertId);
   formData.append("document", file);
   return apiFetch<DocumentVerificationResult>("/api/certificates/verify-file", {
     method: "POST",

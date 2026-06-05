@@ -23,7 +23,6 @@ import {
   QrCode,
   FileText,
   Hash,
-  Blocks,
   Wallet,
   Download,
   Upload,
@@ -41,12 +40,31 @@ type DocumentVerifyError = {
 
 type VerifyFileErrorPayload = {
   certId?: string;
+  lookup?: "certId" | "documentHash";
   message?: string;
   error?: string;
   uploaded?: {
     sha256?: string;
   };
 };
+
+function getIpfsUrl(ipfsHash?: string | null) {
+  return ipfsHash ? `https://ipfs.io/ipfs/${ipfsHash}` : null;
+}
+
+function getVerifyPageUrl(certId: string, fallbackUrl?: string) {
+  if (fallbackUrl) return fallbackUrl;
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+  return `${baseUrl}/verify?certId=${encodeURIComponent(certId)}`;
+}
+
+function formatCertificateDate(value: string | number) {
+  if (typeof value === "number") {
+    return new Date(value * 1000).toLocaleDateString();
+  }
+
+  return value;
+}
 
 function VerifyPageContent() {
   const searchParams = useSearchParams();
@@ -112,9 +130,9 @@ function VerifyPageContent() {
           setNotFound(true);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Search error:", err);
-      setErrorMsg(err.message || "An unexpected error occurred during search.");
+      setErrorMsg(err instanceof Error ? err.message : "An unexpected error occurred during search.");
       setNotFound(true);
     }
 
@@ -156,26 +174,19 @@ function VerifyPageContent() {
     }
 
     const certId = (documentCertId.trim() || result?.certId || "").trim();
-    if (!certId) {
-      setDocumentVerifyError({
-        kind: "input",
-        title: "Certificate ID Required",
-        message: "We need a certificate ID to compare your uploaded document with on-chain records.",
-        nextStep: "Enter a certificate ID manually, or search and load a certificate first.",
-      });
-      return;
-    }
 
     setIsVerifyingDocument(true);
     try {
-      const verification = await verifyCertificateDocumentFile(certId, documentFile);
+      const verification = await verifyCertificateDocumentFile(certId || null, documentFile);
       setDocumentVerifyResult(verification);
+      setDocumentCertId(verification.certId);
     } catch (err) {
       if (err instanceof ApiError) {
         const payload = (typeof err.data === "object" && err.data !== null
           ? err.data
           : {}) as VerifyFileErrorPayload;
         const resolvedCertId = payload.certId || certId;
+        const lookup = payload.lookup || (certId ? "certId" : "documentHash");
         const uploadedSha256 =
           payload.uploaded && typeof payload.uploaded.sha256 === "string"
             ? payload.uploaded.sha256
@@ -189,10 +200,20 @@ function VerifyPageContent() {
         if (err.status === 404) {
           setDocumentVerifyError({
             kind: "not_found",
-            title: "Potential Fake: Certificate ID Not Found On-Chain",
-            message: `Certificate "${resolvedCertId}" does not exist in Edulocka blockchain records. This uploaded document is likely fake, unregistered, or linked to a different ID.`,
-            nextStep: "Ask the issuer for the exact certificate ID or verify using the QR code on the original document.",
+            title:
+              lookup === "documentHash"
+                ? "Potential Fake: Uploaded PDF Not Found In Edulocka Records"
+                : "Potential Fake: Certificate ID Not Found On-Chain",
+            message:
+              lookup === "documentHash"
+                ? "No issued Edulocka certificate has a stored SHA-256 document hash matching this uploaded PDF."
+                : `Certificate "${resolvedCertId}" does not exist in Edulocka blockchain records. This uploaded document is likely fake, unregistered, or linked to a different ID.`,
+            nextStep:
+              lookup === "documentHash"
+                ? "Ask the issuer for the original certificate, certificate ID, or QR verification link."
+                : "Ask the issuer for the exact certificate ID or verify using the QR code on the original document.",
             certId: resolvedCertId,
+            uploadedSha256,
           });
         } else if (err.status === 409) {
           setDocumentVerifyError({
@@ -227,7 +248,7 @@ function VerifyPageContent() {
           title: "Document Verification Failed",
           message: err instanceof Error ? err.message : "File verification failed",
           nextStep: "Retry the upload. If this keeps failing, check backend logs and gateway connectivity.",
-          certId,
+          certId: certId || undefined,
         });
       }
     } finally {
@@ -245,25 +266,45 @@ function VerifyPageContent() {
     ? documentVerifyResult.verified
       ? {
           tone: "success" as const,
-          title: "Authentic: Document Matches On-Chain Record",
+          title: "This Certificate Is Authentic",
           message:
-            "This uploaded PDF matches the exact file hash anchored in the Edulocka certificate record.",
-          nextStep: "You can trust this certificate as authentic for this certificate ID.",
+            "The uploaded PDF matches the official certificate file recorded for this certificate.",
+          nextStep: "You can accept this certificate as verified.",
         }
       : documentVerifyResult.match.sha256
       ? {
           tone: "warning" as const,
-          title: "Warning: File Matches, But Certificate Is Not Currently Valid",
+          title: "This File Is Original, But The Certificate Is Not Active",
           message:
-            "The uploaded file matches the original IPFS document, but the certificate status is not valid right now.",
-          nextStep: "Check the certificate status with the issuer before accepting it.",
+            "The PDF matches the official file, but the certificate is currently not marked as valid.",
+          nextStep: "Contact the issuing institution before accepting it.",
         }
       : {
           tone: "danger" as const,
-          title: "Potential Fake or Altered Document",
+          title: "This PDF Does Not Match The Official Certificate",
           message:
-            "This certificate ID exists on-chain, but the uploaded PDF hash does not match the original file hash stored on IPFS.",
+            "A certificate record was found, but the uploaded PDF is different from the official file.",
           nextStep: "Treat this document as suspicious and request the original file from the issuing institution.",
+        }
+    : null;
+
+  const resultStatusCopy = result
+    ? result.status === "verified"
+      ? {
+          title: "Certificate Verified",
+          message: "This certificate was found in Edulocka records and is currently valid.",
+          nextStep: "You can review the recipient, program, institution, and original file below.",
+        }
+      : result.status === "pending"
+      ? {
+          title: "Certificate Pending",
+          message: "This certificate was found, but it is still waiting for final confirmation.",
+          nextStep: "Check again later or contact the issuing institution.",
+        }
+      : {
+          title: "Certificate Not Valid",
+          message: "This certificate was found, but it is not currently valid.",
+          nextStep: "Do not accept it until the issuing institution explains its status.",
         }
     : null;
 
@@ -315,7 +356,7 @@ function VerifyPageContent() {
             Verify Certificate
           </h1>
           <p className="mt-2 text-gray-500 dark:text-gray-400">
-            Verify by certificate ID / tx hash / wallet, then optionally prove the uploaded PDF matches on-chain IPFS content.
+            Search with certificate details or upload the PDF to confirm it is the official document.
           </p>
         </div>
 
@@ -370,17 +411,17 @@ function VerifyPageContent() {
 
           {/* Quick search hint */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-gray-400">Try issuing a certificate first, then search by its ID here</span>
+            <span className="text-xs text-gray-400">Use the details shared by the issuer, or upload the PDF if you do not know them.</span>
           </div>
         </div>
 
         {/* Document Hash Verification */}
         <div className="mx-auto mt-6 max-w-2xl rounded-none border-2 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
           <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-gray-900 dark:text-white">
-            Verify by Uploaded PDF (SHA-256 vs On-Chain IPFS File)
+            Verify by Uploaded PDF
           </h3>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            Upload a certificate PDF and we hash it, fetch the IPFS file referenced on-chain, hash that too, and compare.
+            Upload a certificate PDF and we will check whether it matches an official Edulocka certificate.
           </p>
 
           <form onSubmit={handleDocumentVerify} className="mt-3 space-y-3">
@@ -388,7 +429,7 @@ function VerifyPageContent() {
               type="text"
               value={documentCertId}
               onChange={(e) => setDocumentCertId(e.target.value)}
-              placeholder={result?.certId ? `Leave blank to use loaded cert: ${result.certId}` : "Certificate ID (e.g. CERT-2026-001)"}
+              placeholder={result?.certId ? `Optional: leave blank to use loaded cert ${result.certId}` : "Certificate ID optional"}
               className="w-full rounded-none border-2 border-gray-200 bg-gray-50 px-3 py-2.5 font-mono text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 dark:focus:border-blue-500"
             />
             <div className="rounded-none border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/60">
@@ -414,7 +455,7 @@ function VerifyPageContent() {
               ) : (
                 <Upload className="h-4 w-4" />
               )}
-              Compare File Hash
+              Verify Uploaded PDF
             </button>
           </form>
         </div>
@@ -458,33 +499,79 @@ function VerifyPageContent() {
           <div className={`mx-auto mt-4 max-w-2xl rounded-none border-2 p-4 ${documentVerdictTone.container}`}>
             <div className="flex items-start gap-3">
               <documentVerdictTone.icon className={`mt-0.5 h-5 w-5 ${documentVerdictTone.iconClass}`} />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h4 className={`text-sm font-bold ${documentVerdictTone.title}`}>{documentVerdict.title}</h4>
                 <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{documentVerdict.message}</p>
                 <p className="mt-2 text-xs font-medium text-gray-700 dark:text-gray-300">
                   Next step: {documentVerdict.nextStep}
                 </p>
-                <div className="mt-3 grid gap-2 rounded-none border border-gray-200 bg-white/70 p-3 text-[11px] dark:border-gray-700 dark:bg-gray-900/40">
-                  <p className="text-gray-600 dark:text-gray-300">
-                    Certificate ID: <span className="font-mono">{documentVerifyResult.certId}</span>
-                  </p>
-                  <p className="text-gray-600 dark:text-gray-300">
-                    On-chain IPFS file: <span className="font-mono">{documentVerifyResult.ipfs.hash}</span>
-                  </p>
-                  <p className="text-gray-600 dark:text-gray-300">
-                    Hash comparison:{" "}
-                    <span className={`font-semibold ${
-                      documentVerifyResult.match.sha256 ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"
-                    }`}>
-                      {documentVerifyResult.match.sha256 ? "MATCH" : "MISMATCH"}
-                    </span>
-                  </p>
+
+                <div className="mt-3 grid gap-3 rounded-none border border-gray-200 bg-white/70 p-3 text-xs dark:border-gray-700 dark:bg-gray-900/40 sm:grid-cols-[1fr_auto]">
+                  <div className="space-y-2">
+                    <p className="font-semibold text-gray-900 dark:text-white">
+                      {documentVerifyResult.certificate.studentName}
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      {documentVerifyResult.certificate.degree}
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      Issued by {documentVerifyResult.certificate.institution}
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      Issued on {formatCertificateDate(documentVerifyResult.certificate.issueDate)}
+                    </p>
+                    <p className="text-gray-600 dark:text-gray-300">
+                      Certificate ID: <span className="font-mono">{documentVerifyResult.certId}</span>
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-start gap-2 sm:items-end">
+                    <div className="flex h-24 w-24 items-center justify-center rounded-sm border border-gray-200 bg-white p-1 dark:border-gray-600">
+                      <QRCodeSVG
+                        value={getVerifyPageUrl(documentVerifyResult.certId, documentVerifyResult.verifyUrl)}
+                        size={84}
+                        level="M"
+                        bgColor="#ffffff"
+                        fgColor="#111827"
+                      />
+                    </div>
+                    <span className="text-[11px] text-gray-500 dark:text-gray-400">Scan to verify again</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {getIpfsUrl(documentVerifyResult.ipfs.hash) && (
+                    <a
+                      href={getIpfsUrl(documentVerifyResult.ipfs.hash) || undefined}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 rounded-none border-2 border-blue-600 bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      View Original File
+                    </a>
+                  )}
+                  <a
+                    href={getVerifyPageUrl(documentVerifyResult.certId, documentVerifyResult.verifyUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                  >
+                    <QrCode className="h-3.5 w-3.5" />
+                    Open Verification Link
+                  </a>
                 </div>
                 <details className="mt-3 rounded-none border border-gray-200 bg-white/70 p-2 dark:border-gray-700 dark:bg-gray-900/40">
                   <summary className="cursor-pointer text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">
-                    Advanced Technical Details
+                    Technical Details
                   </summary>
                   <div className="mt-2 space-y-1.5">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      Lookup method: {documentVerifyResult.lookup === "documentHash" ? "Uploaded PDF match" : "Certificate ID"}
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      File comparison: {documentVerifyResult.match.sha256 ? "The files match" : "The files do not match"}
+                    </p>
                     <HashDisplay
                       hash={documentVerifyResult.uploaded.sha256}
                       label="Uploaded SHA-256"
@@ -509,7 +596,7 @@ function VerifyPageContent() {
           <div className="mx-auto mt-12 max-w-2xl text-center">
             <Loader2 className="mx-auto h-8 w-8 animate-spin text-blue-500" />
             <p className="mt-3 font-mono text-sm text-gray-500 dark:text-gray-400">
-              Querying blockchain...
+              Checking certificate records...
             </p>
           </div>
         )}
@@ -522,7 +609,7 @@ function VerifyPageContent() {
               Certificate Not Found
             </h3>
             <p className="mt-2 text-sm text-red-600 dark:text-red-400/70">
-              {errorMsg || `No certificate matching "${searchQuery}" was found. Please check the ID and try again.`}
+              {errorMsg || `We could not find a certificate matching "${searchQuery}". Please check the details or ask the issuer for the QR code or verification link.`}
             </p>
           </div>
         )}
@@ -534,7 +621,7 @@ function VerifyPageContent() {
               <h3 className="text-sm font-bold text-gray-900 dark:text-white">
                 Found {results.length} Certificates
               </h3>
-              <span className="text-xs text-gray-500">Click to view details</span>
+              <span className="text-xs text-gray-500">Choose one to review</span>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {results.map((cert) => (
@@ -600,10 +687,13 @@ function VerifyPageContent() {
                     ? "text-yellow-700 dark:text-yellow-400"
                     : "text-red-700 dark:text-red-400"
                 }`}>
-                  {result.status === "verified" ? "✓ Verified on Chain" : result.status === "pending" ? "⏳ Pending Confirmation" : "✗ Invalid / Revoked"}
+                  {resultStatusCopy?.title}
                 </h3>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
-                  Certificate {result.certId} — Block #{result.blockNumber.toLocaleString()}
+                  {resultStatusCopy?.message}
+                </p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {resultStatusCopy?.nextStep}
                 </p>
               </div>
             </div>
@@ -613,18 +703,18 @@ function VerifyPageContent() {
               <div className="rounded-none border-2 border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900 lg:col-span-2">
                 <div className="border-b border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800">
                   <h3 className="flex items-center gap-2 font-mono text-sm font-bold text-gray-900 dark:text-white">
-                    <Blocks className="h-4 w-4 text-blue-500" />
-                    CERTIFICATE DETAILS
+                    <FileText className="h-4 w-4 text-blue-500" />
+                    CERTIFICATE SUMMARY
                   </h3>
                 </div>
 
                 <div className="divide-y divide-gray-100 dark:divide-gray-800">
                   {[
                     { label: "Certificate ID", value: result.certId, mono: true },
-                    { label: "Student Name", value: result.studentName },
-                    { label: "Degree", value: result.degree },
-                    { label: "Institution", value: result.institution },
-                    { label: "Issue Date", value: result.issueDate, mono: true },
+                    { label: "Recipient", value: result.studentName },
+                    { label: "Certificate", value: result.degree },
+                    { label: "Issued By", value: result.institution },
+                    { label: "Issue Date", value: formatCertificateDate(result.issueDate), mono: true },
                   ].map((row) => (
                     <div key={row.label} className="flex items-start justify-between px-4 py-3">
                       <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">{row.label}</span>
@@ -632,39 +722,69 @@ function VerifyPageContent() {
                     </div>
                   ))}
 
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Issuer</span>
-                    <div className="flex items-center gap-2">
-                      <HashDisplay hash={result.studentWallet} />
-                      <InstitutionBadge address={result.studentWallet} compact />
+                  <div className="px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                      {getIpfsUrl(result.ipfsHash) && (
+                        <a
+                          href={getIpfsUrl(result.ipfsHash) || undefined}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 rounded-none border-2 border-blue-600 bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-500"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          View Original File
+                        </a>
+                      )}
+                      {pdfUrl && (
+                        <a
+                          href={pdfUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 rounded-none border-2 border-gray-200 bg-gray-50 px-3 py-2 text-xs font-medium text-gray-700 hover:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                        >
+                          <Download className="h-3.5 w-3.5" />
+                          Open Certificate PDF
+                        </a>
+                      )}
                     </div>
                   </div>
 
-                  {result.txHash && (
-                    <div className="flex items-center justify-between px-4 py-3">
-                      <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Tx Hash</span>
-                      <HashDisplay hash={result.txHash} />
+                  <details className="px-4 py-3">
+                    <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                      Technical Details
+                    </summary>
+                    <div className="mt-3 space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Issuer identity</span>
+                        <div className="flex items-center gap-2">
+                          <HashDisplay hash={result.studentWallet} />
+                          <InstitutionBadge address={result.studentWallet} compact />
+                        </div>
+                      </div>
+                      {result.txHash && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Blockchain transaction</span>
+                          <HashDisplay hash={result.txHash} etherscanLink />
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-xs text-gray-500 dark:text-gray-400">Blockchain block</span>
+                        <span className="font-mono text-sm text-blue-600 dark:text-cyan-400">#{result.blockNumber.toLocaleString()}</span>
+                      </div>
+                      {result.gasUsed ? (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Network processing cost</span>
+                          <span className="font-mono text-sm text-gray-900 dark:text-white">{result.gasUsed.toLocaleString()}</span>
+                        </div>
+                      ) : null}
+                      {result.ipfsHash && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">Original file reference</span>
+                          <HashDisplay hash={result.ipfsHash} />
+                        </div>
+                      )}
                     </div>
-                  )}
-
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Block Number</span>
-                    <span className="font-mono text-sm text-blue-600 dark:text-cyan-400">#{result.blockNumber.toLocaleString()}</span>
-                  </div>
-
-                  {result.gasUsed ? (
-                    <div className="flex items-center justify-between px-4 py-3">
-                      <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Gas Used</span>
-                      <span className="font-mono text-sm text-gray-900 dark:text-white">{result.gasUsed.toLocaleString()}</span>
-                    </div>
-                  ) : null}
-
-                  <div className="flex items-center justify-between px-4 py-3">
-                    <span className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">IPFS Document</span>
-                    <a href={`https://ipfs.io/ipfs/${result.ipfsHash}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400">
-                      {result.ipfsHash.slice(0, 16)}...<ExternalLink className="h-3 w-3" />
-                    </a>
-                  </div>
+                  </details>
                 </div>
               </div>
 
@@ -687,22 +807,20 @@ function VerifyPageContent() {
                       />
                     </div>
                     <p className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
-                      Scan to verify on any device
+                      Scan to verify this certificate on any device
                     </p>
                     <code className="mt-1 text-center font-mono text-[10px] text-blue-600 dark:text-cyan-400">
                       {result.certId}
                     </code>
-                    {pdfUrl && (
-                      <a
-                        href={pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="mt-3 flex items-center gap-1.5 rounded-none border-2 border-gray-200 bg-gray-50 px-4 py-2 text-xs font-medium text-gray-700 hover:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
-                      >
-                        <Download className="h-3 w-3" />
-                        Download PDF
-                      </a>
-                    )}
+                    <a
+                      href={getVerifyPageUrl(result.certId)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 flex items-center gap-1.5 rounded-none border-2 border-gray-200 bg-gray-50 px-4 py-2 text-xs font-medium text-gray-700 hover:border-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
+                    >
+                      <QrCode className="h-3 w-3" />
+                      Open Verification Link
+                    </a>
                   </div>
                 </div>
               </div>
