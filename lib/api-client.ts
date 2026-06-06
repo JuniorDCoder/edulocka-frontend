@@ -643,6 +643,37 @@ export async function sendCertificateEmail(data: {
   });
 }
 
+/** Revoke a single certificate (requires wallet auth) */
+export async function revokeCertificate(
+  certId: string,
+  wallet: WalletAuth
+): Promise<{ success: boolean; certId: string; txHash: string; blockNumber: number; message: string }> {
+  const headers = await getWalletAuthHeaders(wallet);
+  return apiFetch(`/api/certificates/${encodeURIComponent(certId)}/revoke`, {
+    method: "POST",
+    headers,
+  });
+}
+
+/** Bulk revoke certificates (requires wallet auth, max 50) */
+export async function bulkRevokeCertificates(
+  certIds: string[],
+  wallet: WalletAuth
+): Promise<{
+  success: boolean;
+  total: number;
+  succeeded: number;
+  failed: number;
+  results: { certId: string; success: boolean; txHash?: string; error?: string }[];
+}> {
+  const headers = await getWalletAuthHeaders(wallet);
+  return apiFetch("/api/certificates/bulk-revoke", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ certIds }),
+  });
+}
+
 /** Bulk export QR codes as ZIP */
 export async function bulkExportQR(certIds: string[]): Promise<Blob> {
   return apiFetch<Blob>("/api/qr/bulk-export", {
@@ -735,15 +766,35 @@ export async function checkAuthorizationStatus(
   return apiFetch(`/api/institution/check/${walletAddress}`);
 }
 
+export interface InstitutionApplication {
+  id: string;
+  institutionName: string;
+  registrationNumber: string;
+  country: string;
+  status: "pending" | "under_review" | "approved" | "rejected";
+  appliedDate: string;
+  authorizedOnChain: boolean;
+}
+
+export interface InstitutionOnChainInfo {
+  name: string;
+  registrationNumber: string;
+  country: string;
+  isActive: boolean;
+  authorizedDate: number;
+  totalIssued: number;
+  isAuthorized: boolean;
+}
+
 /** Get institution info for connected wallet (requires auth headers) */
 export async function getMyInstitutionInfo(
   walletAddress: string,
   signature: string,
   message: string
 ): Promise<{
-  application: Record<string, unknown> | null;
-  onChainInfo: Record<string, unknown> | null;
-  isAuthorized: boolean;
+  walletAddress: string;
+  application: InstitutionApplication | null;
+  blockchain: InstitutionOnChainInfo | null;
 }> {
   return apiFetch("/api/institution/my-info", {
     headers: {
