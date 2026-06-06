@@ -29,9 +29,11 @@ import {
 } from "lucide-react";
 
 const COUNTRIES = [
-  "United States", "United Kingdom", "Canada", "Australia", "Germany", "France",
-  "India", "Nigeria", "South Africa", "Kenya", "Ghana", "Brazil", "Japan",
-  "South Korea", "Singapore", "UAE", "Saudi Arabia", "China", "Other",
+  "Cameroon",
+  "Australia", "Brazil", "Canada", "China", "France", "Germany", "Ghana",
+  "India", "Japan", "Kenya", "Nigeria", "Saudi Arabia", "Singapore",
+  "South Africa", "South Korea", "UAE", "United Kingdom", "United States",
+  "Other",
 ];
 
 export default function ApplyInstitutionPage() {
