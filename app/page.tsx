@@ -81,7 +81,7 @@ function ActivityFeed({ certs }: { certs: Certificate[] }) {
     <div className="space-y-1.5">
       {certs.slice(0, 5).map((cert, i) => (
         <div key={`${cert.certId}-${i}`}
-          className="flex items-center justify-between rounded-none border border-gray-100 bg-white px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900">
+          className="flex items-center justify-between overflow-hidden rounded-none border border-gray-100 bg-white px-3 py-2.5 dark:border-gray-800 dark:bg-gray-900">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-950/40">
               <BadgeCheck className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
@@ -107,7 +107,7 @@ function QuickVerifyWidget() {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<"authentic" | "mismatch" | "notfound" | null>(null);
-  const [studentName, setStudentName] = useState("");
+  const [certInfo, setCertInfo] = useState<{ name: string; degree: string; institution: string; issueDate: string; certId: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleDrop = (e: React.DragEvent) => {
@@ -121,9 +121,21 @@ function QuickVerifyWidget() {
     if (!file) return;
     setLoading(true);
     setResult(null);
+    setCertInfo(null);
     try {
       const res = await verifyCertificateDocumentFile(null, file);
-      setStudentName(res.certificate.studentName || "");
+      const c = res.certificate;
+      const rawDate = c.issueDate;
+      const formattedDate = rawDate
+        ? new Date(typeof rawDate === "number" ? rawDate * 1000 : rawDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+        : "";
+      setCertInfo({
+        name: c.studentName || "",
+        degree: c.degree || "",
+        institution: c.institution || "",
+        issueDate: formattedDate,
+        certId: res.certId || "",
+      });
       setResult(res.verified ? "authentic" : "mismatch");
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) setResult("notfound");
@@ -134,7 +146,7 @@ function QuickVerifyWidget() {
   };
 
   return (
-    <div className="rounded-none border-2 border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+    <div className="overflow-hidden rounded-none border-2 border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
       <div className="border-b border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-800">
         <div className="flex items-center gap-2">
           <FileUp className="h-4 w-4 text-blue-500" />
@@ -170,25 +182,52 @@ function QuickVerifyWidget() {
           )}
         </div>
 
-        {result === "authentic" && (
-          <div className="mt-3 flex items-center gap-2 rounded-none border border-green-200 bg-green-50 px-3 py-2.5 dark:border-green-800 dark:bg-green-950/20">
-            <CheckCircle className="h-4 w-4 shrink-0 text-green-500" />
-            <div>
-              <p className="text-xs font-bold text-green-700 dark:text-green-400">Authentic certificate</p>
-              {studentName && <p className="text-[10px] text-green-600/80 dark:text-green-500/80">Belongs to {studentName}</p>}
+        {result === "authentic" && certInfo && (
+          <div className="mt-3 rounded-none border border-green-200 bg-green-50 px-3 py-3 dark:border-green-800 dark:bg-green-950/20">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 shrink-0 text-green-500" />
+              <p className="text-xs font-bold text-green-700 dark:text-green-400">This certificate is genuine</p>
             </div>
+            <div className="mt-2 space-y-1 pl-6">
+              {certInfo.name && <p className="text-[10px] text-green-700 dark:text-green-400"><span className="font-semibold">Issued to:</span> {certInfo.name}</p>}
+              {certInfo.degree && <p className="text-[10px] text-green-700 dark:text-green-400"><span className="font-semibold">Credential:</span> {certInfo.degree}</p>}
+              {certInfo.institution && <p className="text-[10px] text-green-700 dark:text-green-400"><span className="font-semibold">Issued by:</span> {certInfo.institution}</p>}
+              {certInfo.issueDate && <p className="text-[10px] text-green-700 dark:text-green-400"><span className="font-semibold">Date:</span> {certInfo.issueDate}</p>}
+            </div>
+            {certInfo.certId && (
+              <Link href={`/verify?certId=${encodeURIComponent(certInfo.certId)}`}
+                className="mt-2 block pl-6 text-[10px] font-semibold text-green-700 underline-offset-2 hover:underline dark:text-green-400">
+                See full verification details →
+              </Link>
+            )}
           </div>
         )}
         {result === "mismatch" && (
-          <div className="mt-3 flex items-center gap-2 rounded-none border border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-800 dark:bg-red-950/20">
-            <Shield className="h-4 w-4 shrink-0 text-red-500" />
-            <p className="text-xs font-bold text-red-700 dark:text-red-400">File doesn't match official record</p>
+          <div className="mt-3 rounded-none border border-red-200 bg-red-50 px-3 py-3 dark:border-red-800 dark:bg-red-950/20">
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 shrink-0 text-red-500" />
+              <p className="text-xs font-bold text-red-700 dark:text-red-400">This PDF has been altered</p>
+            </div>
+            <p className="mt-1.5 pl-6 text-[10px] leading-relaxed text-red-700/80 dark:text-red-400/80">
+              The file doesn&apos;t match the original certificate on record. It may have been edited or tampered with after it was issued.
+            </p>
+            <Link href="/verify" className="mt-2 block pl-6 text-[10px] font-semibold text-red-700 underline-offset-2 hover:underline dark:text-red-400">
+              Check on the verify page →
+            </Link>
           </div>
         )}
         {result === "notfound" && (
-          <div className="mt-3 flex items-center gap-2 rounded-none border border-orange-200 bg-orange-50 px-3 py-2.5 dark:border-orange-800 dark:bg-orange-950/20">
-            <Search className="h-4 w-4 shrink-0 text-orange-500" />
-            <p className="text-xs font-bold text-orange-700 dark:text-orange-400">Not found in our records</p>
+          <div className="mt-3 rounded-none border border-orange-200 bg-orange-50 px-3 py-3 dark:border-orange-800 dark:bg-orange-950/20">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 shrink-0 text-orange-500" />
+              <p className="text-xs font-bold text-orange-700 dark:text-orange-400">No matching certificate found</p>
+            </div>
+            <p className="mt-1.5 pl-6 text-[10px] leading-relaxed text-orange-700/80 dark:text-orange-400/80">
+              This PDF wasn&apos;t found in our system. It may not have been issued through Edulocka — check with the issuing institution or try searching by certificate ID.
+            </p>
+            <Link href="/verify" className="mt-2 block pl-6 text-[10px] font-semibold text-orange-700 underline-offset-2 hover:underline dark:text-orange-400">
+              Search by certificate ID →
+            </Link>
           </div>
         )}
 
@@ -301,10 +340,10 @@ export default function Home() {
             </div>
 
             {/* Right — quick verify + activity */}
-            <div className="flex flex-col gap-3">
+            <div className="flex min-w-0 flex-col gap-3 overflow-hidden">
               <QuickVerifyWidget />
 
-              <div className="rounded-none border-2 border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+              <div className="overflow-hidden rounded-none border-2 border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
                 <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-3 dark:border-gray-800 dark:bg-gray-800">
                   <div className="flex items-center gap-2">
                     <Activity className="h-4 w-4 text-green-500" />
