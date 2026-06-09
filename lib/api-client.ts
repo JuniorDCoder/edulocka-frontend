@@ -1158,6 +1158,86 @@ export async function adminDeleteBlog(
   });
 }
 
+// ── Student Portal API ──────────────────────────────────────────────────────
+
+export interface StudentLoginResult {
+  success: boolean;
+  token: string;
+  student: {
+    studentId: string;
+    studentName: string;
+    institutions: { name: string; count: number }[];
+    totalCertificates: number;
+  };
+}
+
+export interface StudentCertificate {
+  certId: string;
+  studentName: string;
+  studentId: string | null;
+  degree: string;
+  institution: string;
+  issueDate: string;
+  status: "issued" | "revoked";
+  blockchain: { txHash: string | null; blockNumber: number | null; issuedAt: string | null };
+  ipfs: { ipfsHash: string | null; documentHash: string | null; gateway: string | null };
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface StudentProfile {
+  studentId: string;
+  studentName: string;
+  institutions: string[];
+  stats: { total: number; issued: number; revoked: number };
+}
+
+export interface StudentLookupResult {
+  found: true;
+  studentId: string;
+  studentName: string;
+  institutions: { name: string; count: number }[];
+  total: number;
+}
+
+/** Look up which institutions have issued certificates for a student ID.
+ *  Returns only institutions that actually have certs for that ID — used to
+ *  populate the institution dropdown and prevent invalid selections. */
+export async function lookupStudentById(studentId: string): Promise<StudentLookupResult> {
+  return apiFetch<StudentLookupResult>(
+    `/api/student/lookup?studentId=${encodeURIComponent(studentId)}`
+  );
+}
+
+/** Authenticate as a student using student ID */
+export async function studentLogin(studentId: string, institutionName?: string): Promise<StudentLoginResult> {
+  return apiFetch<StudentLoginResult>("/api/student/login", {
+    method: "POST",
+    body: JSON.stringify({ studentId, institutionName }),
+  });
+}
+
+/** List all certificates for the authenticated student */
+export async function getStudentCertificates(
+  token: string,
+  params?: { institution?: string; status?: "issued" | "revoked" }
+): Promise<{ certificates: StudentCertificate[]; total: number }> {
+  const query = new URLSearchParams();
+  if (params?.institution) query.set("institution", params.institution);
+  if (params?.status) query.set("status", params.status);
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch(`/api/student/certificates${qs}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+/** Get authenticated student's profile */
+export async function getStudentProfile(token: string): Promise<StudentProfile> {
+  return apiFetch<StudentProfile>("/api/student/profile", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
 export async function adminListBlogLogs(
   auth: { address: string; signature: string; message: string },
   params?: { action?: string; actor?: string; blogId?: string; page?: number; limit?: number }

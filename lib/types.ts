@@ -83,6 +83,48 @@ export interface InstitutionApplication {
   updatedAt: string;
 }
 
+// ── Student Portal Types ─────────────────────────────────────────────────────
+
+export interface StudentProfile {
+  studentId: string;
+  studentName: string;
+  institutions: string[];
+  stats: { total: number; issued: number; revoked: number };
+}
+
+export interface StudentCertificate {
+  certId: string;
+  studentName: string;
+  studentId: string | null;
+  degree: string;
+  institution: string;
+  issueDate: string;
+  status: "issued" | "revoked";
+  blockchain: {
+    txHash: string | null;
+    blockNumber: number | null;
+    issuedAt: string | null;
+  };
+  ipfs: {
+    ipfsHash: string | null;
+    documentHash: string | null;
+    gateway: string | null;
+  };
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface StudentLoginResult {
+  success: boolean;
+  token: string;
+  student: {
+    studentId: string;
+    studentName: string;
+    institutions: { name: string; count: number }[];
+    totalCertificates: number;
+  };
+}
+
 export interface AdminStats {
   totalApplications: number;
   pending: number;

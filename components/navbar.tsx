@@ -22,6 +22,7 @@ const navGroups = [
       { href: "/bulk", label: "Bulk Issuance" },
       { href: "/verify", label: "Verify Certificate" },
       { href: "/dashboard", label: "Dashboard" },
+      { href: "/student/login", label: "Student Portal" },
     ],
   },
   {
@@ -39,6 +40,7 @@ const navGroups = [
     label: "Learn",
     description: "Product details and support",
     links: [
+      { href: "/how-it-works", label: "How It Works" },
       { href: "/blogs", label: "Blog" },
       { href: "/about", label: "About Edulocka" },
       { href: "/faq", label: "FAQ" },
