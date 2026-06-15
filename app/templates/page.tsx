@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, type DragEvent } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type DragEvent,
+} from "react";
 import { useWallet } from "@/lib/wallet-context";
 import {
   listTemplates,
@@ -54,7 +60,15 @@ const AI_SUGGESTIONS = [
   "Generate an elegant graduation certificate using gold linework, subtle ledger patterns, and space for registrar signatures.",
 ];
 
-type BuilderElementType = "studentName" | "degree" | "institution" | "issueDate" | "certId" | "qrDataUrl" | "verifyUrl" | "signature";
+type BuilderElementType =
+  | "studentName"
+  | "degree"
+  | "institution"
+  | "issueDate"
+  | "certId"
+  | "qrDataUrl"
+  | "verifyUrl"
+  | "signature";
 
 interface BuilderElement {
   id: string;
@@ -70,19 +84,94 @@ interface BuilderElement {
 }
 
 const BUILDER_PALETTE: Array<Omit<BuilderElement, "id" | "x" | "y">> = [
-  { type: "studentName", label: "Student Name", placeholder: "{{studentName}}", width: 300, height: 58, fontSize: 34, align: "center" },
-  { type: "degree", label: "Degree", placeholder: "{{degree}}", width: 360, height: 44, fontSize: 20, align: "center" },
-  { type: "institution", label: "Institution", placeholder: "{{institution}}", width: 320, height: 36, fontSize: 18, align: "center" },
-  { type: "issueDate", label: "Issue Date", placeholder: "Issued {{issueDate}}", width: 190, height: 30, fontSize: 13, align: "left" },
-  { type: "certId", label: "Certificate ID", placeholder: "ID {{certId}}", width: 210, height: 30, fontSize: 12, align: "right" },
-  { type: "qrDataUrl", label: "QR Code", placeholder: "{{qrDataUrl}}", width: 94, height: 94, fontSize: 12, align: "center" },
-  { type: "verifyUrl", label: "Verify Link", placeholder: "{{verifyUrl}}", width: 280, height: 28, fontSize: 10, align: "center" },
-  { type: "signature", label: "Signature Line", placeholder: "Authorized Signature", width: 220, height: 42, fontSize: 12, align: "center" },
+  {
+    type: "studentName",
+    label: "Student Name",
+    placeholder: "{{studentName}}",
+    width: 300,
+    height: 58,
+    fontSize: 34,
+    align: "center",
+  },
+  {
+    type: "degree",
+    label: "Degree",
+    placeholder: "{{degree}}",
+    width: 360,
+    height: 44,
+    fontSize: 20,
+    align: "center",
+  },
+  {
+    type: "institution",
+    label: "Institution",
+    placeholder: "{{institution}}",
+    width: 320,
+    height: 36,
+    fontSize: 18,
+    align: "center",
+  },
+  {
+    type: "issueDate",
+    label: "Issue Date",
+    placeholder: "Issued {{issueDate}}",
+    width: 190,
+    height: 30,
+    fontSize: 13,
+    align: "left",
+  },
+  {
+    type: "certId",
+    label: "Certificate ID",
+    placeholder: "ID {{certId}}",
+    width: 210,
+    height: 30,
+    fontSize: 12,
+    align: "right",
+  },
+  {
+    type: "qrDataUrl",
+    label: "QR Code",
+    placeholder: "{{qrDataUrl}}",
+    width: 94,
+    height: 94,
+    fontSize: 12,
+    align: "center",
+  },
+  {
+    type: "verifyUrl",
+    label: "Verify Link",
+    placeholder: "{{verifyUrl}}",
+    width: 280,
+    height: 28,
+    fontSize: 10,
+    align: "center",
+  },
+  {
+    type: "signature",
+    label: "Signature Line",
+    placeholder: "Authorized Signature",
+    width: 220,
+    height: 42,
+    fontSize: 12,
+    align: "center",
+  },
 ];
 
 const STARTER_ELEMENTS: BuilderElement[] = [
   { id: "builder-institution", ...BUILDER_PALETTE[2], x: 250, y: 70 },
-  { id: "builder-title", type: "degree", label: "Certificate Title", placeholder: "Certificate of Achievement", width: 380, height: 46, fontSize: 28, align: "center", x: 220, y: 130 },
+  {
+    id: "builder-title",
+    type: "degree",
+    label: "Certificate Title",
+    placeholder: "Certificate of Achievement",
+    width: 380,
+    height: 46,
+    fontSize: 28,
+    align: "center",
+    x: 220,
+    y: 130,
+  },
   { id: "builder-student", ...BUILDER_PALETTE[0], x: 260, y: 220 },
   { id: "builder-degree", ...BUILDER_PALETTE[1], x: 230, y: 292 },
   { id: "builder-date", ...BUILDER_PALETTE[3], x: 90, y: 425 },
@@ -104,33 +193,46 @@ export default function TemplatesPage() {
   const [aiStudioOpen, setAiStudioOpen] = useState(true);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [aiTemplateName, setAiTemplateName] = useState("ai-certificate-template");
+  const [aiTemplateName, setAiTemplateName] = useState(
+    "ai-certificate-template",
+  );
   const [aiInstitutionName, setAiInstitutionName] = useState("");
   const [aiTone, setAiTone] = useState("prestigious, modern, trusted");
-  const [aiPalette, setAiPalette] = useState("deep navy, electric blue, emerald, white");
+  const [aiPalette, setAiPalette] = useState(
+    "deep navy, electric blue, emerald, white",
+  );
   const [aiEditTemplateId, setAiEditTemplateId] = useState("");
   const [aiEditPrompt, setAiEditPrompt] = useState("");
   const [isEditingWithAi, setIsEditingWithAi] = useState(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(
+    null,
+  );
   const [deleteTarget, setDeleteTarget] = useState<TemplateInfo | null>(null);
   const [deleteConfirmValue, setDeleteConfirmValue] = useState("");
-  const [builderTemplateId, setBuilderTemplateId] = useState("visual-certificate-template");
+  const [builderTemplateId, setBuilderTemplateId] = useState(
+    "visual-certificate-template",
+  );
   const [builderInstitutionName, setBuilderInstitutionName] = useState("");
   const [builderAccent, setBuilderAccent] = useState("#2563eb");
-  const [builderElements, setBuilderElements] = useState<BuilderElement[]>(STARTER_ELEMENTS);
-  const [selectedBuilderElementId, setSelectedBuilderElementId] = useState<string | null>("builder-student");
+  const [builderElements, setBuilderElements] =
+    useState<BuilderElement[]>(STARTER_ELEMENTS);
+  const [selectedBuilderElementId, setSelectedBuilderElementId] = useState<
+    string | null
+  >("builder-student");
   const [isSavingBuilder, setIsSavingBuilder] = useState(false);
   const [aiMessages, setAiMessages] = useState<AiTemplateMessage[]>([
     {
       role: "assistant",
-      content: "Describe the certificate style, institution vibe, colors, and any layout details. I will save the result as a normal private template.",
+      content:
+        "Describe the certificate style, institution vibe, colors, and any layout details. I will save the result as a normal private template.",
     },
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Build wallet auth object if connected (only for uploads/previews that need signing)
   const getWalletAuth = useCallback((): WalletAuth | undefined => {
-    if (!wallet.connected || !wallet.address || !wallet.signer) return undefined;
+    if (!wallet.connected || !wallet.address || !wallet.signer)
+      return undefined;
     return {
       address: wallet.address,
       signMessage: (msg: string) => wallet.signer!.signMessage(msg),
@@ -178,7 +280,9 @@ export default function TemplatesPage() {
 
     try {
       const result = await uploadTemplate(file, wallet);
-      setSuccess(`Template "${result.templateId}" uploaded to your institution's templates.`);
+      setSuccess(
+        `Template "${result.templateId}" uploaded to your institution's templates.`,
+      );
       await loadTemplates();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Upload failed");
@@ -212,7 +316,9 @@ export default function TemplatesPage() {
 
     const prompt = (promptOverride || aiPrompt).trim();
     if (prompt.length < 12) {
-      setError("Describe the certificate template you want in a little more detail.");
+      setError(
+        "Describe the certificate template you want in a little more detail.",
+      );
       return;
     }
 
@@ -222,7 +328,11 @@ export default function TemplatesPage() {
     setAiMessages((messages) => [
       ...messages,
       { role: "user", content: prompt },
-      { role: "assistant", content: "Generating your certificate template with Gemini and saving it to your institution vault..." },
+      {
+        role: "assistant",
+        content:
+          "Generating your certificate template with Gemini and saving it to your institution vault...",
+      },
     ]);
 
     try {
@@ -234,19 +344,23 @@ export default function TemplatesPage() {
           tone: aiTone || undefined,
           colorPalette: aiPalette || undefined,
         },
-        wallet
+        wallet,
       );
 
       setAiMessages((messages) => [
         ...messages.slice(0, -1),
         {
           role: "assistant",
-          content: `Saved "${result.templateId}" as a private institution template. You can preview it here or select it on the Issue page.`,
+          content: result.previewWarning
+            ? `Saved "${result.templateId}" as a private institution template. ${result.previewWarning} You can still select it on the Issue page.`
+            : `Saved "${result.templateId}" as a private institution template. You can preview it here or select it on the Issue page.`,
         },
       ]);
       setSuccess(`AI template "${result.templateId}" generated and saved.`);
-      setPreviewName(result.templateId);
-      setPreviewHTML(result.previewHtml);
+      if (result.previewHtml) {
+        setPreviewName(result.templateId);
+        setPreviewHTML(result.previewHtml);
+      }
       setAiPrompt("");
       await loadTemplates();
     } catch (err) {
@@ -254,10 +368,13 @@ export default function TemplatesPage() {
         ...messages.slice(0, -1),
         {
           role: "assistant",
-          content: err instanceof Error ? err.message : "Template generation failed.",
+          content:
+            err instanceof Error ? err.message : "Template generation failed.",
         },
       ]);
-      setError(err instanceof Error ? err.message : "Template generation failed");
+      setError(
+        err instanceof Error ? err.message : "Template generation failed",
+      );
     }
 
     setIsGenerating(false);
@@ -318,18 +435,28 @@ export default function TemplatesPage() {
 
   const handleBuilderDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const type = event.dataTransfer.getData("application/edulocka-builder") as BuilderElementType;
+    const type = event.dataTransfer.getData(
+      "application/edulocka-builder",
+    ) as BuilderElementType;
     const rect = event.currentTarget.getBoundingClientRect();
     if (type) {
-      addBuilderElement(type, event.clientX - rect.left - 80, event.clientY - rect.top - 20);
+      addBuilderElement(
+        type,
+        event.clientX - rect.left - 80,
+        event.clientY - rect.top - 20,
+      );
     }
   };
 
   const updateBuilderElement = (id: string, patch: Partial<BuilderElement>) => {
-    setBuilderElements((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    setBuilderElements((items) =>
+      items.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+    );
   };
 
-  const selectedBuilderElement = builderElements.find((item) => item.id === selectedBuilderElementId) || null;
+  const selectedBuilderElement =
+    builderElements.find((item) => item.id === selectedBuilderElementId) ||
+    null;
 
   const handleSaveManualTemplate = async () => {
     const wallet = getWalletAuth();
@@ -352,14 +479,22 @@ export default function TemplatesPage() {
         builderTemplateId,
         buildManualTemplateHtml(),
         wallet,
-        builderInstitutionName || undefined
+        builderInstitutionName || undefined,
       );
-      setSuccess(`Template "${result.templateId}" saved from the visual builder.`);
-      setPreviewName(result.templateId);
-      setPreviewHTML(result.previewHtml);
+      setSuccess(
+        result.previewWarning
+          ? `Template "${result.templateId}" saved from the visual builder. ${result.previewWarning}`
+          : `Template "${result.templateId}" saved from the visual builder.`,
+      );
+      if (result.previewHtml) {
+        setPreviewName(result.templateId);
+        setPreviewHTML(result.previewHtml);
+      }
       await loadTemplates();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save visual template");
+      setError(
+        err instanceof Error ? err.message : "Failed to save visual template",
+      );
     }
 
     setIsSavingBuilder(false);
@@ -389,15 +524,23 @@ export default function TemplatesPage() {
         aiEditTemplateId,
         aiEditPrompt,
         wallet,
-        aiInstitutionName || undefined
+        aiInstitutionName || undefined,
       );
-      setSuccess(`Template "${result.templateId}" updated with AI.`);
-      setPreviewName(result.templateId);
-      setPreviewHTML(result.previewHtml);
+      setSuccess(
+        result.previewWarning
+          ? `Template "${result.templateId}" updated with AI. ${result.previewWarning}`
+          : `Template "${result.templateId}" updated with AI.`,
+      );
+      if (result.previewHtml) {
+        setPreviewName(result.templateId);
+        setPreviewHTML(result.previewHtml);
+      }
       setAiEditPrompt("");
       await loadTemplates();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to edit template with AI");
+      setError(
+        err instanceof Error ? err.message : "Failed to edit template with AI",
+      );
     }
 
     setIsEditingWithAi(false);
@@ -437,7 +580,9 @@ export default function TemplatesPage() {
       setDeleteConfirmValue("");
       await loadTemplates();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete template");
+      setError(
+        err instanceof Error ? err.message : "Failed to delete template",
+      );
     }
 
     setDeletingTemplateId(null);
@@ -458,7 +603,9 @@ export default function TemplatesPage() {
             </h1>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
               Manage HTML templates for PDF certificate generation.
-              {wallet.connected ? " Your custom templates are private to your institution." : " Connect wallet to manage institution templates."}
+              {wallet.connected
+                ? " Your custom templates are private to your institution."
+                : " Connect wallet to manage institution templates."}
             </p>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-3">
@@ -505,7 +652,10 @@ export default function TemplatesPage() {
           <div className="mb-6 flex items-center gap-3 rounded-none border-2 border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/20">
             <AlertCircle className="h-5 w-5 flex-shrink-0 text-red-500" />
             <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
-            <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-red-600">
+            <button
+              onClick={() => setError(null)}
+              className="ml-auto text-red-400 hover:text-red-600"
+            >
               <XCircle className="h-4 w-4" />
             </button>
           </div>
@@ -513,8 +663,13 @@ export default function TemplatesPage() {
         {success && (
           <div className="mb-6 flex items-center gap-3 rounded-none border-2 border-green-300 bg-green-50 p-4 dark:border-green-800 dark:bg-green-950/20">
             <CheckCircle className="h-5 w-5 flex-shrink-0 text-green-500" />
-            <p className="text-sm text-green-700 dark:text-green-400">{success}</p>
-            <button onClick={() => setSuccess(null)} className="ml-auto text-green-400 hover:text-green-600">
+            <p className="text-sm text-green-700 dark:text-green-400">
+              {success}
+            </p>
+            <button
+              onClick={() => setSuccess(null)}
+              className="ml-auto text-green-400 hover:text-green-600"
+            >
               <XCircle className="h-4 w-4" />
             </button>
           </div>
@@ -524,7 +679,9 @@ export default function TemplatesPage() {
         {loading && (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="mb-4 h-8 w-8 animate-spin text-blue-500" />
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading templates...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Loading templates...
+            </p>
           </div>
         )}
 
@@ -532,7 +689,9 @@ export default function TemplatesPage() {
           <>
             {/* ── AI Template Generator ── */}
             <div className="mb-10 overflow-hidden rounded-none border-2 border-blue-200 bg-white dark:border-blue-800 dark:bg-gray-900">
-              <div className={`${aiStudioOpen ? "border-b" : ""} border-blue-100 bg-gradient-to-r from-blue-50 via-white to-emerald-50 p-5 dark:border-blue-900 dark:from-blue-950/30 dark:via-gray-900 dark:to-emerald-950/20`}>
+              <div
+                className={`${aiStudioOpen ? "border-b" : ""} border-blue-100 bg-gradient-to-r from-blue-50 via-white to-emerald-50 p-5 dark:border-blue-900 dark:from-blue-950/30 dark:via-gray-900 dark:to-emerald-950/20`}
+              >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <div className="flex items-center gap-2">
@@ -545,7 +704,8 @@ export default function TemplatesPage() {
                       </span>
                     </div>
                     <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-                      Generate institution-ready HTML templates, then use them like any uploaded template when issuing certificates.
+                      Generate institution-ready HTML templates, then use them
+                      like any uploaded template when issuing certificates.
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -566,7 +726,11 @@ export default function TemplatesPage() {
                       aria-expanded={aiStudioOpen}
                       aria-controls="ai-template-studio-panel"
                     >
-                      {aiStudioOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      {aiStudioOpen ? (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      )}
                       {aiStudioOpen ? "Collapse" : "Open"}
                     </button>
                   </div>
@@ -574,116 +738,123 @@ export default function TemplatesPage() {
               </div>
 
               {aiStudioOpen && (
-              <div id="ai-template-studio-panel" className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]">
-                <div className="border-b border-gray-200 p-5 lg:border-b-0 lg:border-r dark:border-gray-800">
-                  <div className="mb-4 grid gap-3 sm:grid-cols-2">
-                    <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Template ID
-                      <input
-                        value={aiTemplateName}
-                        onChange={(e) => setAiTemplateName(e.target.value)}
-                        className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                        placeholder="mit-blockchain-award"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Institution Name
-                      <input
-                        value={aiInstitutionName}
-                        onChange={(e) => setAiInstitutionName(e.target.value)}
-                        className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                        placeholder="Uses {{institution}} if empty"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Tone
-                      <input
-                        value={aiTone}
-                        onChange={(e) => setAiTone(e.target.value)}
-                        className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                        placeholder="prestigious, modern, trusted"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Palette
-                      <input
-                        value={aiPalette}
-                        onChange={(e) => setAiPalette(e.target.value)}
-                        className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                        placeholder="navy, blue, emerald, white"
-                      />
-                    </label>
-                  </div>
+                <div
+                  id="ai-template-studio-panel"
+                  className="grid gap-0 lg:grid-cols-[1.05fr_0.95fr]"
+                >
+                  <div className="border-b border-gray-200 p-5 lg:border-b-0 lg:border-r dark:border-gray-800">
+                    <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                        Template ID
+                        <input
+                          value={aiTemplateName}
+                          onChange={(e) => setAiTemplateName(e.target.value)}
+                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                          placeholder="mit-blockchain-award"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                        Institution Name
+                        <input
+                          value={aiInstitutionName}
+                          onChange={(e) => setAiInstitutionName(e.target.value)}
+                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                          placeholder="Uses {{institution}} if empty"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                        Tone
+                        <input
+                          value={aiTone}
+                          onChange={(e) => setAiTone(e.target.value)}
+                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                          placeholder="prestigious, modern, trusted"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                        Palette
+                        <input
+                          value={aiPalette}
+                          onChange={(e) => setAiPalette(e.target.value)}
+                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                          placeholder="navy, blue, emerald, white"
+                        />
+                      </label>
+                    </div>
 
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {AI_SUGGESTIONS.map((suggestion) => (
-                      <button
-                        key={suggestion}
-                        onClick={() => setAiPrompt(suggestion)}
-                        disabled={isGenerating}
-                        className="rounded-sm border border-blue-200 bg-blue-50 px-3 py-1.5 text-left text-xs text-blue-700 hover:border-blue-400 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:border-blue-600"
-                      >
-                        <Wand2 className="mr-1 inline h-3 w-3" />
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <textarea
-                      value={aiPrompt}
-                      onChange={(e) => setAiPrompt(e.target.value)}
-                      rows={4}
-                      className="min-h-28 flex-1 resize-none rounded-none border-2 border-gray-200 bg-white px-3 py-3 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                      placeholder="Ask for a certificate design with specific layout, border style, colors, security details, signature areas, or branding..."
-                    />
-                    <button
-                      onClick={() => handleGenerateAiTemplate()}
-                      disabled={isGenerating || !wallet.connected}
-                      className="flex w-14 items-center justify-center rounded-none border-2 border-blue-600 bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-500"
-                      aria-label="Generate AI template"
-                    >
-                      {isGenerating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="flex max-h-[520px] flex-col bg-gray-50 dark:bg-gray-950">
-                  <div className="border-b border-gray-200 px-5 py-3 dark:border-gray-800">
-                    <p className="font-mono text-xs font-bold text-gray-500 dark:text-gray-400">
-                      TEMPLATE CHAT
-                    </p>
-                  </div>
-                  <div className="flex-1 space-y-3 overflow-auto p-5">
-                    {aiMessages.map((message, index) => (
-                      <div
-                        key={`${message.role}-${index}`}
-                        className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
-                      >
-                        {message.role === "assistant" && (
-                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-sm bg-blue-600 text-white">
-                            <Bot className="h-4 w-4" />
-                          </div>
-                        )}
-                        <div
-                          className={`max-w-[82%] rounded-none border-2 px-3 py-2 text-sm ${
-                            message.role === "user"
-                              ? "border-blue-600 bg-blue-600 text-white"
-                              : "border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
-                          }`}
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      {AI_SUGGESTIONS.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          onClick={() => setAiPrompt(suggestion)}
+                          disabled={isGenerating}
+                          className="rounded-sm border border-blue-200 bg-blue-50 px-3 py-1.5 text-left text-xs text-blue-700 hover:border-blue-400 hover:bg-blue-100 disabled:opacity-50 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-300 dark:hover:border-blue-600"
                         >
-                          {message.content}
-                        </div>
-                        {message.role === "user" && (
-                          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-sm bg-gray-900 text-white dark:bg-gray-700">
-                            <User className="h-4 w-4" />
-                          </div>
+                          <Wand2 className="mr-1 inline h-3 w-3" />
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <textarea
+                        value={aiPrompt}
+                        onChange={(e) => setAiPrompt(e.target.value)}
+                        rows={4}
+                        className="min-h-28 flex-1 resize-none rounded-none border-2 border-gray-200 bg-white px-3 py-3 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                        placeholder="Ask for a certificate design with specific layout, border style, colors, security details, signature areas, or branding..."
+                      />
+                      <button
+                        onClick={() => handleGenerateAiTemplate()}
+                        disabled={isGenerating || !wallet.connected}
+                        className="flex w-14 items-center justify-center rounded-none border-2 border-blue-600 bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-blue-500"
+                        aria-label="Generate AI template"
+                      >
+                        {isGenerating ? (
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                        ) : (
+                          <Send className="h-5 w-5" />
                         )}
-                      </div>
-                    ))}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex max-h-[520px] flex-col bg-gray-50 dark:bg-gray-950">
+                    <div className="border-b border-gray-200 px-5 py-3 dark:border-gray-800">
+                      <p className="font-mono text-xs font-bold text-gray-500 dark:text-gray-400">
+                        TEMPLATE CHAT
+                      </p>
+                    </div>
+                    <div className="flex-1 space-y-3 overflow-auto p-5">
+                      {aiMessages.map((message, index) => (
+                        <div
+                          key={`${message.role}-${index}`}
+                          className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                        >
+                          {message.role === "assistant" && (
+                            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-sm bg-blue-600 text-white">
+                              <Bot className="h-4 w-4" />
+                            </div>
+                          )}
+                          <div
+                            className={`max-w-[82%] rounded-none border-2 px-3 py-2 text-sm ${
+                              message.role === "user"
+                                ? "border-blue-600 bg-blue-600 text-white"
+                                : "border-gray-200 bg-white text-gray-700 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-200"
+                            }`}
+                          >
+                            {message.content}
+                          </div>
+                          {message.role === "user" && (
+                            <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-sm bg-gray-900 text-white dark:bg-gray-700">
+                              <User className="h-4 w-4" />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
               )}
             </div>
 
@@ -696,7 +867,8 @@ export default function TemplatesPage() {
                     Improve Existing Templates
                   </h2>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Select one of your private templates and ask Gemini for a precise redesign or correction.
+                    Select one of your private templates and ask Gemini for a
+                    precise redesign or correction.
                   </p>
                 </div>
                 <span className="rounded-sm border border-emerald-200 bg-white px-3 py-1.5 text-xs font-medium text-emerald-700 dark:border-emerald-800 dark:bg-gray-950 dark:text-emerald-300">
@@ -708,7 +880,9 @@ export default function TemplatesPage() {
                   Template
                   <select
                     value={aiEditTemplateId}
-                    onChange={(event) => setAiEditTemplateId(event.target.value)}
+                    onChange={(event) =>
+                      setAiEditTemplateId(event.target.value)
+                    }
                     className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-emerald-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                   >
                     <option value="">Select private template</option>
@@ -731,10 +905,16 @@ export default function TemplatesPage() {
                 </label>
                 <button
                   onClick={handleAiEditTemplate}
-                  disabled={isEditingWithAi || !wallet.connected || !aiEditTemplateId}
+                  disabled={
+                    isEditingWithAi || !wallet.connected || !aiEditTemplateId
+                  }
                   className="flex items-center justify-center gap-2 rounded-none border-2 border-emerald-600 bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isEditingWithAi ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
+                  {isEditingWithAi ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4" />
+                  )}
                   Apply AI Edit
                 </button>
               </div>
@@ -742,7 +922,9 @@ export default function TemplatesPage() {
 
             {/* Visual template builder */}
             <div className="mb-10 overflow-hidden rounded-none border-2 border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
-              <div className={`${builderOpen ? "border-b" : ""} border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950`}>
+              <div
+                className={`${builderOpen ? "border-b" : ""} border-gray-200 bg-gray-50 p-5 dark:border-gray-800 dark:bg-gray-950`}
+              >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <h2 className="flex items-center gap-2 text-lg font-bold text-gray-900 dark:text-white">
@@ -750,7 +932,8 @@ export default function TemplatesPage() {
                       Guided Visual Builder
                     </h2>
                     <p className="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
-                      Drag certificate fields onto the canvas, adjust their layout, then save the design as a normal private template.
+                      Drag certificate fields onto the canvas, adjust their
+                      layout, then save the design as a normal private template.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -760,7 +943,11 @@ export default function TemplatesPage() {
                       aria-expanded={builderOpen}
                       aria-controls="guided-visual-builder-panel"
                     >
-                      {builderOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                      {builderOpen ? (
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      ) : (
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      )}
                       {builderOpen ? "Collapse" : "Open Builder"}
                     </button>
                     <button
@@ -778,7 +965,11 @@ export default function TemplatesPage() {
                       disabled={isSavingBuilder || !wallet.connected}
                       className="flex items-center gap-2 rounded-none border-2 border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {isSavingBuilder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      {isSavingBuilder ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
                       Save Builder Template
                     </button>
                   </div>
@@ -786,143 +977,205 @@ export default function TemplatesPage() {
               </div>
 
               {builderOpen && (
-              <div id="guided-visual-builder-panel" className="grid gap-0 xl:grid-cols-[220px_1fr_260px]">
-                <div className="border-b border-gray-200 p-4 xl:border-b-0 xl:border-r dark:border-gray-800">
-                  <p className="mb-3 font-mono text-xs font-bold text-gray-500 dark:text-gray-400">FIELDS</p>
-                  <div className="grid gap-2">
-                    {BUILDER_PALETTE.map((item) => (
-                      <button
-                        key={item.type}
-                        draggable
-                        onDragStart={(event) => event.dataTransfer.setData("application/edulocka-builder", item.type)}
-                        onClick={() => addBuilderElement(item.type)}
-                        className="flex items-center gap-2 rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-left text-xs font-medium text-gray-700 hover:border-blue-500 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
-                      >
-                        {item.type === "qrDataUrl" ? <QrCode className="h-4 w-4" /> : item.type === "signature" ? <Award className="h-4 w-4" /> : <Type className="h-4 w-4" />}
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="mt-5 grid gap-3">
-                    <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Template ID
-                      <input
-                        value={builderTemplateId}
-                        onChange={(event) => setBuilderTemplateId(event.target.value)}
-                        className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Institution
-                      <input
-                        value={builderInstitutionName}
-                        onChange={(event) => setBuilderInstitutionName(event.target.value)}
-                        className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                        placeholder="Preview name"
-                      />
-                    </label>
-                    <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                      Accent
-                      <input
-                        type="color"
-                        value={builderAccent}
-                        onChange={(event) => setBuilderAccent(event.target.value)}
-                        className="mt-1 h-10 w-full rounded-none border-2 border-gray-200 bg-white p-1 dark:border-gray-700 dark:bg-gray-950"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="overflow-auto bg-slate-100 p-4 dark:bg-gray-950">
-                  <div
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={handleBuilderDrop}
-                    className="relative mx-auto h-[560px] w-[820px] overflow-hidden border-[14px] border-slate-900 bg-white shadow-sm dark:border-slate-700"
-                  >
-                    <div className="pointer-events-none absolute inset-6 border-2" style={{ borderColor: builderAccent }} />
-                    <div className="pointer-events-none absolute inset-12 bg-[linear-gradient(90deg,rgba(37,99,235,.05)_1px,transparent_1px),linear-gradient(rgba(37,99,235,.05)_1px,transparent_1px)] bg-[length:28px_28px]" />
-                    {builderElements.map((element) => (
-                      <button
-                        key={element.id}
-                        onClick={() => setSelectedBuilderElementId(element.id)}
-                        className={`absolute flex items-center justify-center border-2 px-2 text-slate-900 ${
-                          selectedBuilderElementId === element.id
-                            ? "border-blue-600 bg-blue-50/90"
-                            : "border-slate-300 bg-white/80 hover:border-blue-400"
-                        }`}
-                        style={{
-                          left: element.x,
-                          top: element.y,
-                          width: element.width,
-                          height: element.height,
-                          fontSize: element.fontSize,
-                          textAlign: element.align,
-                        }}
-                      >
-                        {element.type === "qrDataUrl" ? <QrCode className="h-9 w-9 text-slate-500" /> : element.placeholder}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="border-t border-gray-200 p-4 xl:border-l xl:border-t-0 dark:border-gray-800">
-                  <p className="mb-3 font-mono text-xs font-bold text-gray-500 dark:text-gray-400">SELECTED FIELD</p>
-                  {selectedBuilderElement ? (
-                    <div className="grid gap-3">
-                      <div className="flex items-center gap-2 rounded-sm border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-300">
-                        <Move className="h-3.5 w-3.5" />
-                        {selectedBuilderElement.label}
-                      </div>
+                <div
+                  id="guided-visual-builder-panel"
+                  className="grid gap-0 xl:grid-cols-[220px_1fr_260px]"
+                >
+                  <div className="border-b border-gray-200 p-4 xl:border-b-0 xl:border-r dark:border-gray-800">
+                    <p className="mb-3 font-mono text-xs font-bold text-gray-500 dark:text-gray-400">
+                      FIELDS
+                    </p>
+                    <div className="grid gap-2">
+                      {BUILDER_PALETTE.map((item) => (
+                        <button
+                          key={item.type}
+                          draggable
+                          onDragStart={(event) =>
+                            event.dataTransfer.setData(
+                              "application/edulocka-builder",
+                              item.type,
+                            )
+                          }
+                          onClick={() => addBuilderElement(item.type)}
+                          className="flex items-center gap-2 rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-left text-xs font-medium text-gray-700 hover:border-blue-500 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-950 dark:text-gray-300"
+                        >
+                          {item.type === "qrDataUrl" ? (
+                            <QrCode className="h-4 w-4" />
+                          ) : item.type === "signature" ? (
+                            <Award className="h-4 w-4" />
+                          ) : (
+                            <Type className="h-4 w-4" />
+                          )}
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="mt-5 grid gap-3">
                       <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                        Text
+                        Template ID
                         <input
-                          value={selectedBuilderElement.placeholder}
-                          onChange={(event) => updateBuilderElement(selectedBuilderElement.id, { placeholder: event.target.value })}
-                          disabled={selectedBuilderElement.type === "qrDataUrl" || selectedBuilderElement.type === "verifyUrl"}
-                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                          value={builderTemplateId}
+                          onChange={(event) =>
+                            setBuilderTemplateId(event.target.value)
+                          }
+                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                         />
                       </label>
-                      {(["x", "y", "width", "height", "fontSize"] as const).map((field) => (
-                        <label key={field} className="text-xs font-medium capitalize text-gray-600 dark:text-gray-300">
-                          {field}
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                        Institution
+                        <input
+                          value={builderInstitutionName}
+                          onChange={(event) =>
+                            setBuilderInstitutionName(event.target.value)
+                          }
+                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                          placeholder="Preview name"
+                        />
+                      </label>
+                      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                        Accent
+                        <input
+                          type="color"
+                          value={builderAccent}
+                          onChange={(event) =>
+                            setBuilderAccent(event.target.value)
+                          }
+                          className="mt-1 h-10 w-full rounded-none border-2 border-gray-200 bg-white p-1 dark:border-gray-700 dark:bg-gray-950"
+                        />
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="overflow-auto bg-slate-100 p-4 dark:bg-gray-950">
+                    <div
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={handleBuilderDrop}
+                      className="relative mx-auto h-[560px] w-[820px] overflow-hidden border-[14px] border-slate-900 bg-white shadow-sm dark:border-slate-700"
+                    >
+                      <div
+                        className="pointer-events-none absolute inset-6 border-2"
+                        style={{ borderColor: builderAccent }}
+                      />
+                      <div className="pointer-events-none absolute inset-12 bg-[linear-gradient(90deg,rgba(37,99,235,.05)_1px,transparent_1px),linear-gradient(rgba(37,99,235,.05)_1px,transparent_1px)] bg-[length:28px_28px]" />
+                      {builderElements.map((element) => (
+                        <button
+                          key={element.id}
+                          onClick={() =>
+                            setSelectedBuilderElementId(element.id)
+                          }
+                          className={`absolute flex items-center justify-center border-2 px-2 text-slate-900 ${
+                            selectedBuilderElementId === element.id
+                              ? "border-blue-600 bg-blue-50/90"
+                              : "border-slate-300 bg-white/80 hover:border-blue-400"
+                          }`}
+                          style={{
+                            left: element.x,
+                            top: element.y,
+                            width: element.width,
+                            height: element.height,
+                            fontSize: element.fontSize,
+                            textAlign: element.align,
+                          }}
+                        >
+                          {element.type === "qrDataUrl" ? (
+                            <QrCode className="h-9 w-9 text-slate-500" />
+                          ) : (
+                            element.placeholder
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 p-4 xl:border-l xl:border-t-0 dark:border-gray-800">
+                    <p className="mb-3 font-mono text-xs font-bold text-gray-500 dark:text-gray-400">
+                      SELECTED FIELD
+                    </p>
+                    {selectedBuilderElement ? (
+                      <div className="grid gap-3">
+                        <div className="flex items-center gap-2 rounded-sm border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-950/20 dark:text-blue-300">
+                          <Move className="h-3.5 w-3.5" />
+                          {selectedBuilderElement.label}
+                        </div>
+                        <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                          Text
                           <input
-                            type="number"
-                            value={selectedBuilderElement[field]}
-                            onChange={(event) => updateBuilderElement(selectedBuilderElement.id, { [field]: Number(event.target.value) } as Partial<BuilderElement>)}
-                            className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                            value={selectedBuilderElement.placeholder}
+                            onChange={(event) =>
+                              updateBuilderElement(selectedBuilderElement.id, {
+                                placeholder: event.target.value,
+                              })
+                            }
+                            disabled={
+                              selectedBuilderElement.type === "qrDataUrl" ||
+                              selectedBuilderElement.type === "verifyUrl"
+                            }
+                            className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                           />
                         </label>
-                      ))}
-                      <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                        Align
-                        <select
-                          value={selectedBuilderElement.align}
-                          onChange={(event) => updateBuilderElement(selectedBuilderElement.id, { align: event.target.value as BuilderElement["align"] })}
-                          className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                        {(
+                          ["x", "y", "width", "height", "fontSize"] as const
+                        ).map((field) => (
+                          <label
+                            key={field}
+                            className="text-xs font-medium capitalize text-gray-600 dark:text-gray-300"
+                          >
+                            {field}
+                            <input
+                              type="number"
+                              value={selectedBuilderElement[field]}
+                              onChange={(event) =>
+                                updateBuilderElement(
+                                  selectedBuilderElement.id,
+                                  {
+                                    [field]: Number(event.target.value),
+                                  } as Partial<BuilderElement>,
+                                )
+                              }
+                              className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                            />
+                          </label>
+                        ))}
+                        <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                          Align
+                          <select
+                            value={selectedBuilderElement.align}
+                            onChange={(event) =>
+                              updateBuilderElement(selectedBuilderElement.id, {
+                                align: event.target
+                                  .value as BuilderElement["align"],
+                              })
+                            }
+                            className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                          >
+                            <option value="left">Left</option>
+                            <option value="center">Center</option>
+                            <option value="right">Right</option>
+                          </select>
+                        </label>
+                        <button
+                          onClick={() => {
+                            setBuilderElements((items) =>
+                              items.filter(
+                                (item) => item.id !== selectedBuilderElement.id,
+                              ),
+                            );
+                            setSelectedBuilderElementId(null);
+                          }}
+                          className="flex items-center justify-center gap-2 rounded-none border-2 border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:border-red-400 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
                         >
-                          <option value="left">Left</option>
-                          <option value="center">Center</option>
-                          <option value="right">Right</option>
-                        </select>
-                      </label>
-                      <button
-                        onClick={() => {
-                          setBuilderElements((items) => items.filter((item) => item.id !== selectedBuilderElement.id));
-                          setSelectedBuilderElementId(null);
-                        }}
-                        className="flex items-center justify-center gap-2 rounded-none border-2 border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 hover:border-red-400 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Remove Field
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="rounded-none border-2 border-dashed border-gray-200 p-5 text-center text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                      Select a field on the canvas to adjust position, size, and text.
-                    </div>
-                  )}
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Remove Field
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="rounded-none border-2 border-dashed border-gray-200 p-5 text-center text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                        Select a field on the canvas to adjust position, size,
+                        and text.
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
               )}
             </div>
 
@@ -950,7 +1203,9 @@ export default function TemplatesPage() {
                             <LayoutTemplate className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                           </div>
                           <div>
-                            <h3 className="font-medium text-gray-900 dark:text-white">{t.name}</h3>
+                            <h3 className="font-medium text-gray-900 dark:text-white">
+                              {t.name}
+                            </h3>
                             <p className="text-xs text-gray-400">{t.id}</p>
                           </div>
                         </div>
@@ -968,7 +1223,9 @@ export default function TemplatesPage() {
                         <button
                           onClick={() => {
                             setAiEditTemplateId(t.id);
-                            setAiEditPrompt(`Improve ${t.name} with stronger spacing, clearer hierarchy, and a polished Web3 certificate finish while preserving all variables.`);
+                            setAiEditPrompt(
+                              `Improve ${t.name} with stronger spacing, clearer hierarchy, and a polished Web3 certificate finish while preserving all variables.`,
+                            );
                           }}
                           className="flex flex-1 items-center justify-center gap-2 rounded-none border-2 border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:border-emerald-500 dark:border-emerald-900 dark:bg-emerald-950/20 dark:text-emerald-300"
                         >
@@ -980,7 +1237,11 @@ export default function TemplatesPage() {
                           className="flex h-9 w-9 items-center justify-center rounded-none border-2 border-red-200 bg-red-50 text-red-700 hover:border-red-500 disabled:opacity-50 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
                           aria-label={`Delete ${t.name}`}
                         >
-                          {deletingTemplateId === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          {deletingTemplateId === t.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-3.5 w-3.5" />
+                          )}
                         </button>
                       </div>
                     </div>
@@ -992,8 +1253,12 @@ export default function TemplatesPage() {
                     className="flex cursor-pointer flex-col items-center justify-center rounded-none border-2 border-dashed border-blue-300 bg-white py-12 transition-colors hover:border-blue-400 dark:border-blue-700 dark:bg-gray-900 dark:hover:border-blue-500"
                   >
                     <Upload className="mb-3 h-8 w-8 text-blue-300 dark:text-blue-600" />
-                    <p className="text-sm font-medium text-blue-500 dark:text-blue-400">Upload New Template</p>
-                    <p className="mt-1 text-xs text-blue-400/70">.html or .hbs files</p>
+                    <p className="text-sm font-medium text-blue-500 dark:text-blue-400">
+                      Upload New Template
+                    </p>
+                    <p className="mt-1 text-xs text-blue-400/70">
+                      .html or .hbs files
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1022,7 +1287,9 @@ export default function TemplatesPage() {
                           <LayoutTemplate className="h-5 w-5 text-green-600 dark:text-green-400" />
                         </div>
                         <div>
-                          <h3 className="font-medium text-gray-900 dark:text-white">{t.name}</h3>
+                          <h3 className="font-medium text-gray-900 dark:text-white">
+                            {t.name}
+                          </h3>
                           <p className="text-xs text-gray-400">{t.id}</p>
                         </div>
                       </div>
@@ -1048,8 +1315,12 @@ export default function TemplatesPage() {
                     className="flex cursor-pointer flex-col items-center justify-center rounded-none border-2 border-dashed border-gray-300 bg-white py-12 transition-colors hover:border-blue-400 dark:border-gray-600 dark:bg-gray-900 dark:hover:border-blue-500"
                   >
                     <Upload className="mb-3 h-8 w-8 text-gray-300 dark:text-gray-600" />
-                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Upload Custom Template</p>
-                    <p className="mt-1 text-xs text-gray-400">Private to your institution</p>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                      Upload Custom Template
+                    </p>
+                    <p className="mt-1 text-xs text-gray-400">
+                      Private to your institution
+                    </p>
                   </div>
                 )}
               </div>
@@ -1063,7 +1334,10 @@ export default function TemplatesPage() {
                   Need a custom template designed?
                 </p>
                 <p className="mt-1 text-xs text-blue-600/70 dark:text-blue-400/60">
-                  Contact our support team and we&apos;ll design and upload a professional certificate template tailored to your institution&apos;s branding. Each custom template is private and only accessible to your institution.
+                  Contact our support team and we&apos;ll design and upload a
+                  professional certificate template tailored to your
+                  institution&apos;s branding. Each custom template is private
+                  and only accessible to your institution.
                 </p>
               </div>
             </div>
@@ -1074,9 +1348,12 @@ export default function TemplatesPage() {
         {!loading && templates.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Palette className="mb-4 h-12 w-12 text-gray-300 dark:text-gray-600" />
-            <h3 className="text-lg font-medium text-gray-900 dark:text-white">No templates yet</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white">
+              No templates yet
+            </h3>
             <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              Upload an HTML template to get started with PDF certificate generation.
+              Upload an HTML template to get started with PDF certificate
+              generation.
             </p>
           </div>
         )}
@@ -1108,7 +1385,9 @@ export default function TemplatesPage() {
                 <code className="whitespace-nowrap rounded bg-gray-100 px-1.5 py-0.5 font-mono text-blue-600 dark:bg-gray-800 dark:text-blue-400">
                   {v.var}
                 </code>
-                <span className="text-gray-500 dark:text-gray-400">{v.desc}</span>
+                <span className="text-gray-500 dark:text-gray-400">
+                  {v.desc}
+                </span>
               </div>
             ))}
           </div>
@@ -1123,13 +1402,19 @@ export default function TemplatesPage() {
                   PREVIEW: {previewName}
                 </h3>
                 <button
-                  onClick={() => { setPreviewName(null); setPreviewHTML(null); }}
+                  onClick={() => {
+                    setPreviewName(null);
+                    setPreviewHTML(null);
+                  }}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
                 >
                   <XCircle className="h-5 w-5" />
                 </button>
               </div>
-              <div className="overflow-auto" style={{ maxHeight: "calc(90vh - 52px)" }}>
+              <div
+                className="overflow-auto"
+                style={{ maxHeight: "calc(90vh - 52px)" }}
+              >
                 {previewHTML ? (
                   <iframe
                     srcDoc={previewHTML}
@@ -1163,7 +1448,10 @@ export default function TemplatesPage() {
                         Delete {deleteTarget.name}
                       </h3>
                       <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-                        This removes the private HTML template from your institution library. Issued certificates remain on-chain, but this template will no longer be available for new issuance.
+                        This removes the private HTML template from your
+                        institution library. Issued certificates remain
+                        on-chain, but this template will no longer be available
+                        for new issuance.
                       </p>
                     </div>
                   </div>
@@ -1181,15 +1469,20 @@ export default function TemplatesPage() {
               <div className="p-5">
                 <div className="mb-4 grid gap-3 rounded-none border-2 border-gray-200 bg-gray-50 p-4 dark:border-gray-800 dark:bg-gray-900">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Template ID</span>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      Template ID
+                    </span>
                     <code className="break-all rounded-sm bg-white px-2 py-1 font-mono text-xs text-red-600 dark:bg-gray-950 dark:text-red-300">
                       {deleteTarget.id}
                     </code>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Owner</span>
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                      Owner
+                    </span>
                     <code className="break-all rounded-sm bg-white px-2 py-1 font-mono text-xs text-blue-600 dark:bg-gray-950 dark:text-blue-300">
-                      {deleteTarget.owner.slice(0, 8)}...{deleteTarget.owner.slice(-6)}
+                      {deleteTarget.owner.slice(0, 8)}...
+                      {deleteTarget.owner.slice(-6)}
                     </code>
                   </div>
                 </div>
@@ -1198,7 +1491,9 @@ export default function TemplatesPage() {
                   Type the template ID to confirm
                   <input
                     value={deleteConfirmValue}
-                    onChange={(event) => setDeleteConfirmValue(event.target.value)}
+                    onChange={(event) =>
+                      setDeleteConfirmValue(event.target.value)
+                    }
                     disabled={Boolean(deletingTemplateId)}
                     className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 font-mono text-sm text-gray-900 outline-none focus:border-red-500 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
                     placeholder={deleteTarget.id}
@@ -1215,10 +1510,17 @@ export default function TemplatesPage() {
                   </button>
                   <button
                     onClick={confirmDeleteTemplate}
-                    disabled={deleteConfirmValue.trim() !== deleteTarget.id || Boolean(deletingTemplateId)}
+                    disabled={
+                      deleteConfirmValue.trim() !== deleteTarget.id ||
+                      Boolean(deletingTemplateId)
+                    }
                     className="flex items-center justify-center gap-2 rounded-none border-2 border-red-600 bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {deletingTemplateId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                    {deletingTemplateId ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-4 w-4" />
+                    )}
                     Delete Permanently
                   </button>
                 </div>

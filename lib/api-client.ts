@@ -428,7 +428,8 @@ export async function generateAiTemplate(
   owner: string;
   message: string;
   placeholders: string[];
-  previewHtml: string;
+  previewHtml: string | null;
+  previewWarning?: string;
 }> {
   const authHeaders = await getWalletAuthHeaders(wallet);
   return apiFetch("/api/templates/generate-ai", {
@@ -449,7 +450,8 @@ export async function saveTemplateHtml(
   templateId: string;
   owner: string;
   message: string;
-  previewHtml: string;
+  previewHtml: string | null;
+  previewWarning?: string;
 }> {
   const authHeaders = await getWalletAuthHeaders(wallet);
   return apiFetch(`/api/templates/${encodeURIComponent(templateId)}`, {
@@ -471,7 +473,8 @@ export async function editTemplateWithAi(
   owner: string;
   message: string;
   placeholders: string[];
-  previewHtml: string;
+  previewHtml: string | null;
+  previewWarning?: string;
 }> {
   const authHeaders = await getWalletAuthHeaders(wallet);
   return apiFetch(`/api/templates/${encodeURIComponent(templateId)}/edit-ai`, {
