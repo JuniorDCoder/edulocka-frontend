@@ -21,6 +21,7 @@ import {
   adminRevokeCertificate,
   adminListStudents,
   adminGetStudentDetails,
+  adminListTransactions,
   type BlogPost,
   type BlogAuditLogEntry,
   type BlogStatus,
@@ -28,11 +29,15 @@ import {
   type AdminCertificateRecord,
   type AdminStudentSummary,
   type AdminStudentDetails,
+  type AdminTransaction,
+  type AdminTransactionType,
 } from "@/lib/api-client";
 import { ApplicationStatusBadge } from "@/components/application-status-badge";
 import { InstitutionBadge } from "@/components/institution-badge";
 import { BlogStatusBadge } from "@/components/blog-status-badge";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { HashDisplay } from "@/components/hash-display";
+import { ETHERSCAN_BASE_URL } from "@/lib/contract-config";
 import { ethers } from "ethers";
 import Link from "next/link";
 import {
@@ -69,9 +74,11 @@ import {
   Mail,
   GraduationCap,
   ChevronLeft,
+  ArrowLeftRight,
+  User,
 } from "lucide-react";
 
-type Tab = "overview" | "applications" | "institutions" | "certificates" | "students" | "blogs";
+type Tab = "overview" | "applications" | "institutions" | "certificates" | "students" | "blogs" | "transactions";
 
 interface AuthData {
   address: string;
@@ -135,6 +142,14 @@ export default function AdminPage() {
   const [studentPagination, setStudentPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 });
   const [selectedStudent, setSelectedStudent] = useState<AdminStudentDetails | null>(null);
   const [loadingStudentDetail, setLoadingStudentDetail] = useState(false);
+
+  // Transactions (platform-wide on-chain activity feed)
+  const [transactions, setTransactions] = useState<AdminTransaction[]>([]);
+  const [txSearch, setTxSearch] = useState("");
+  const [txTypeFilter, setTxTypeFilter] = useState<"all" | AdminTransactionType>("all");
+  const [loadingTx, setLoadingTx] = useState(false);
+  const [txPagination, setTxPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 });
+  const [txCounts, setTxCounts] = useState<Record<AdminTransactionType, number> | null>(null);
 
   // Blogs
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
@@ -411,6 +426,31 @@ export default function AdminPage() {
     }
   }, [auth, handleUnauthorizedAdminError]);
 
+  // Load platform-wide on-chain transaction feed
+  const loadTransactions = useCallback(async (page = 1) => {
+    if (!auth) return;
+    setLoadingTx(true);
+    try {
+      const data = await adminListTransactions(auth, {
+        page,
+        limit: txPagination.limit,
+        type: txTypeFilter !== "all" ? txTypeFilter : undefined,
+        search: txSearch || undefined,
+      });
+      setTransactions(data.transactions);
+      setTxPagination(data.pagination);
+      setTxCounts(data.counts);
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setTransactions([]);
+        return;
+      }
+      setTransactions([]);
+    } finally {
+      setLoadingTx(false);
+    }
+  }, [auth, txTypeFilter, txSearch, txPagination.limit, handleUnauthorizedAdminError]);
+
   // Load blogs for admin moderation
   const loadBlogs = useCallback(async () => {
     if (!auth) return;
@@ -488,6 +528,13 @@ export default function AdminPage() {
   useEffect(() => {
     if (auth && activeTab === "students") {
       loadStudents(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth, activeTab]);
+
+  useEffect(() => {
+    if (auth && activeTab === "transactions") {
+      loadTransactions(1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [auth, activeTab]);
@@ -658,6 +705,46 @@ export default function AdminPage() {
     </span>
   );
 
+  const TX_TYPE_LABELS: Record<AdminTransactionType, string> = {
+    certificate_issued: "Certificate Issued",
+    certificate_revoked: "Certificate Revoked",
+    institution_authorized: "Institution Authorized",
+    institution_deauthorized: "Institution Deauthorized",
+  };
+
+  const TX_TYPE_STYLES: Record<AdminTransactionType, string> = {
+    certificate_issued: "bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400",
+    certificate_revoked: "bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400",
+    institution_authorized: "bg-blue-100 text-blue-700 dark:bg-blue-950/30 dark:text-blue-400",
+    institution_deauthorized: "bg-orange-100 text-orange-700 dark:bg-orange-950/30 dark:text-orange-400",
+  };
+
+  const TxTypeBadge = ({ type }: { type: AdminTransactionType }) => (
+    <span className={`rounded-sm px-2 py-0.5 text-[10px] font-medium uppercase ${TX_TYPE_STYLES[type]}`}>
+      {TX_TYPE_LABELS[type]}
+    </span>
+  );
+
+  const AddressLink = ({ address }: { address: string }) =>
+    ETHERSCAN_BASE_URL ? (
+      <a
+        href={`${ETHERSCAN_BASE_URL}/address/${address}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="font-mono hover:text-blue-600 hover:underline dark:hover:text-blue-400"
+      >
+        {truncAddr(address)}
+      </a>
+    ) : (
+      <span className="font-mono">{truncAddr(address)}</span>
+    );
+
+  const formatActor = (actor?: string | null) => {
+    if (!actor) return "—";
+    if (actor.startsWith("admin:")) return `Admin (${truncAddr(actor.slice(6))})`;
+    return truncAddr(actor);
+  };
+
   // ── Not connected ───────────────────────────────────────────────────
   if (!wallet.connected) {
     return (
@@ -782,6 +869,7 @@ export default function AdminPage() {
           { id: "institutions" as Tab, label: "Institutions", icon: Building2 },
           { id: "certificates" as Tab, label: "Certificates", icon: Award },
           { id: "students" as Tab, label: "Students", icon: GraduationCap },
+          { id: "transactions" as Tab, label: "Transactions", icon: ArrowLeftRight },
           { id: "blogs" as Tab, label: "Blogs", icon: PenSquare },
         ].map(({ id, label, icon: Icon }) => (
           <button
@@ -1861,6 +1949,163 @@ export default function AdminPage() {
               </div>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* ── Transactions Tab ─────────────────────────────────────────── */}
+      {activeTab === "transactions" && (
+        <div>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={txSearch}
+                onChange={(e) => setTxSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadTransactions(1)}
+                placeholder="Search cert ID, student, institution, wallet, tx hash..."
+                className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+              />
+            </div>
+            <select
+              value={txTypeFilter}
+              onChange={(e) => setTxTypeFilter(e.target.value as "all" | AdminTransactionType)}
+              className="rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+            >
+              <option value="all">All Types</option>
+              <option value="certificate_issued">Certificate Issued</option>
+              <option value="certificate_revoked">Certificate Revoked</option>
+              <option value="institution_authorized">Institution Authorized</option>
+              <option value="institution_deauthorized">Institution Deauthorized</option>
+            </select>
+            <button
+              onClick={() => loadTransactions(1)}
+              disabled={loadingTx}
+              className="flex items-center gap-1 rounded-sm bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+            >
+              {loadingTx ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Search
+            </button>
+          </div>
+
+          {txCounts && (
+            <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {[
+                { label: "Certificates Issued", value: txCounts.certificate_issued, color: "text-green-600 dark:text-green-400" },
+                { label: "Certificates Revoked", value: txCounts.certificate_revoked, color: "text-red-600 dark:text-red-400" },
+                { label: "Institutions Authorized", value: txCounts.institution_authorized, color: "text-blue-600 dark:text-blue-400" },
+                { label: "Institutions Deauthorized", value: txCounts.institution_deauthorized, color: "text-orange-600 dark:text-orange-400" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="rounded-sm border border-gray-200 bg-white p-3 dark:border-gray-800 dark:bg-[#111]">
+                  <div className={`font-mono text-xl font-bold ${color}`}>{value}</div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">{label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{txPagination.total} total transactions</p>
+
+          {loadingTx ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            </div>
+          ) : transactions.length === 0 ? (
+            <div className="rounded-sm border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-[#111]">
+              <ArrowLeftRight className="mx-auto mb-3 h-8 w-8 text-gray-300" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">No transactions found.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {transactions.map((tx, idx) => (
+                <div
+                  key={`${tx.txHash}-${tx.type}-${idx}`}
+                  className="rounded-sm border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-[#111]"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex items-center gap-2">
+                        <TxTypeBadge type={tx.type} />
+                        <span className="text-xs text-gray-400">{formatDateTime(tx.timestamp)}</span>
+                      </div>
+
+                      {(tx.type === "certificate_issued" || tx.type === "certificate_revoked") && (
+                        <div className="text-sm text-gray-900 dark:text-white">
+                          <button
+                            onClick={() => tx.certId && jumpToCertificate(tx.certId)}
+                            className="font-mono font-medium text-blue-600 hover:underline dark:text-blue-400"
+                          >
+                            {tx.certId}
+                          </button>
+                          {" — "}
+                          {tx.studentName}
+                          {tx.studentId ? ` (${tx.studentId})` : ""}
+                          {" · "}
+                          <span className="text-gray-500 dark:text-gray-400">{tx.institution}</span>
+                        </div>
+                      )}
+
+                      {(tx.type === "institution_authorized" || tx.type === "institution_deauthorized") && (
+                        <div className="text-sm text-gray-900 dark:text-white">
+                          {tx.institution}
+                          {tx.walletAddress && (
+                            <>
+                              {" · "}
+                              <AddressLink address={tx.walletAddress} />
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
+                        {tx.studentWallet && (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" /> Student: <AddressLink address={tx.studentWallet} />
+                          </span>
+                        )}
+                        {(tx.type === "certificate_revoked" || tx.type === "institution_deauthorized") && (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" /> By: {formatActor(tx.actor)}
+                          </span>
+                        )}
+                        {tx.type === "institution_authorized" && tx.actor && (
+                          <span className="flex items-center gap-1">
+                            <User className="h-3 w-3" /> Approved by: {formatActor(tx.actor)}
+                          </span>
+                        )}
+                        {tx.blockNumber != null && <span>Block #{tx.blockNumber}</span>}
+                      </div>
+                    </div>
+
+                    <div className="flex-shrink-0">
+                      <HashDisplay hash={tx.txHash} etherscanLink />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {txPagination.pages > 1 && (
+            <div className="mt-4 flex items-center justify-between text-sm">
+              <button
+                onClick={() => loadTransactions(txPagination.page - 1)}
+                disabled={txPagination.page <= 1 || loadingTx}
+                className="flex items-center gap-1 rounded-sm border border-gray-300 px-3 py-1.5 text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
+              >
+                <ChevronLeft className="h-4 w-4" /> Prev
+              </button>
+              <span className="text-gray-500 dark:text-gray-400">Page {txPagination.page} of {txPagination.pages}</span>
+              <button
+                onClick={() => loadTransactions(txPagination.page + 1)}
+                disabled={txPagination.page >= txPagination.pages || loadingTx}
+                className="flex items-center gap-1 rounded-sm border border-gray-300 px-3 py-1.5 text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
+              >
+                Next <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
         </div>
       )}
 

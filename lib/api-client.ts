@@ -1028,6 +1028,46 @@ export async function adminGetStudentDetails(
   });
 }
 
+export type AdminTransactionType =
+  | "certificate_issued"
+  | "certificate_revoked"
+  | "institution_authorized"
+  | "institution_deauthorized";
+
+export interface AdminTransaction {
+  type: AdminTransactionType;
+  txHash: string;
+  blockNumber: number | null;
+  timestamp: string;
+  certId?: string;
+  studentName?: string;
+  studentId?: string | null;
+  studentWallet?: string;
+  institution?: string;
+  walletAddress?: string;
+  actor?: string | null;
+}
+
+/** List all on-chain transactions platform-wide (admin) */
+export async function adminListTransactions(
+  auth: { address: string; signature: string; message: string },
+  params?: { type?: AdminTransactionType; search?: string; page?: number; limit?: number }
+): Promise<{
+  transactions: AdminTransaction[];
+  pagination: { page: number; limit: number; total: number; pages: number };
+  counts: Record<AdminTransactionType, number>;
+}> {
+  const query = new URLSearchParams();
+  if (params?.type) query.set("type", params.type);
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch(`/api/admin/transactions${qs}`, {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
 /** List authorized institutions (admin) */
 export async function adminListInstitutions(
   auth: { address: string; signature: string; message: string }
