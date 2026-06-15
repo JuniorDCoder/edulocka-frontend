@@ -873,10 +873,24 @@ export async function adminRejectApplication(
   });
 }
 
-/** Get admin stats */
-export async function adminGetStats(
-  auth: { address: string; signature: string; message: string }
-): Promise<{
+export interface AdminCertificateRecent {
+  certId: string;
+  studentName: string;
+  studentId: string | null;
+  institution: string;
+  degree: string;
+  status: "issued" | "revoked";
+  createdAt: string;
+}
+
+export interface AdminInstitutionVolume {
+  institution: string;
+  total: number;
+  issued: number;
+  revoked: number;
+}
+
+export interface AdminStats {
   totalApplications: number;
   pending: number;
   underReview: number;
@@ -884,8 +898,132 @@ export async function adminGetStats(
   rejected: number;
   totalOnChainInstitutions: number;
   recentApplications: Record<string, unknown>[];
-}> {
+  certificates: {
+    total: number;
+    issued: number;
+    revoked: number;
+    issuedThisMonth: number;
+    issuedThisWeek: number;
+    emailsSent: number;
+    emailsFailed: number;
+    recent: AdminCertificateRecent[];
+    topInstitutions: AdminInstitutionVolume[];
+  };
+  students: {
+    total: number;
+  };
+  blockchain: {
+    totalCertificates: number;
+    totalInstitutions: number;
+    totalRevocations: number;
+  };
+}
+
+/** Get admin stats */
+export async function adminGetStats(
+  auth: { address: string; signature: string; message: string }
+): Promise<AdminStats> {
   return apiFetch("/api/admin/stats", {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+// ── Admin: Certificates (platform-wide) ──────────────────────────────────────
+
+export interface AdminCertificateRecord extends BackendCertificateRecord {
+  _id?: string;
+  studentEmail?: string | null;
+  revokedAt?: string | null;
+  revokedBy?: string | null;
+}
+
+/** List all certificates across all institutions (admin) */
+export async function adminListCertificates(
+  auth: { address: string; signature: string; message: string },
+  params?: { status?: "issued" | "revoked"; institution?: string; search?: string; page?: number; limit?: number }
+): Promise<{
+  certificates: AdminCertificateRecord[];
+  pagination: { page: number; limit: number; total: number; pages: number };
+}> {
+  const query = new URLSearchParams();
+  if (params?.status) query.set("status", params.status);
+  if (params?.institution) query.set("institution", params.institution);
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch(`/api/admin/certificates${qs}`, {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+/** Get full certificate record (admin) */
+export async function adminGetCertificateDetails(
+  auth: { address: string; signature: string; message: string },
+  certId: string
+): Promise<{ certificate: AdminCertificateRecord }> {
+  return apiFetch(`/api/admin/certificates/${certId}`, {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+/** Revoke any certificate platform-wide (admin) */
+export async function adminRevokeCertificate(
+  auth: { address: string; signature: string; message: string },
+  certId: string
+): Promise<{ success: boolean; certId: string; txHash: string; blockNumber: number; message: string }> {
+  return apiFetch(`/api/admin/certificates/${certId}/revoke`, {
+    method: "POST",
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+// ── Admin: Students (platform-wide) ──────────────────────────────────────────
+
+export interface AdminStudentSummary {
+  studentId: string;
+  studentName: string;
+  studentEmail: string | null;
+  institutions: string[];
+  totalCertificates: number;
+  issuedCount: number;
+  revokedCount: number;
+  lastIssuedAt: string;
+}
+
+export interface AdminStudentDetails {
+  studentId: string;
+  studentName: string;
+  studentEmail: string | null;
+  institutions: { name: string; count: number }[];
+  stats: { total: number; issued: number; revoked: number };
+  certificates: AdminCertificateRecord[];
+}
+
+/** List unique students aggregated across all certificates (admin) */
+export async function adminListStudents(
+  auth: { address: string; signature: string; message: string },
+  params?: { search?: string; page?: number; limit?: number }
+): Promise<{
+  students: AdminStudentSummary[];
+  pagination: { page: number; limit: number; total: number; pages: number };
+}> {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  return apiFetch(`/api/admin/students${qs}`, {
+    headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+/** Get full certificate history for a student (admin) */
+export async function adminGetStudentDetails(
+  auth: { address: string; signature: string; message: string },
+  studentId: string
+): Promise<AdminStudentDetails> {
+  return apiFetch(`/api/admin/students/${studentId}`, {
     headers: adminHeaders(auth.address, auth.signature, auth.message),
   });
 }

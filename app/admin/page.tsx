@@ -16,9 +16,18 @@ import {
   adminReviewBlog,
   adminDeleteBlog,
   adminListBlogLogs,
+  adminListCertificates,
+  adminGetCertificateDetails,
+  adminRevokeCertificate,
+  adminListStudents,
+  adminGetStudentDetails,
   type BlogPost,
   type BlogAuditLogEntry,
   type BlogStatus,
+  type AdminStats,
+  type AdminCertificateRecord,
+  type AdminStudentSummary,
+  type AdminStudentDetails,
 } from "@/lib/api-client";
 import { ApplicationStatusBadge } from "@/components/application-status-badge";
 import { InstitutionBadge } from "@/components/institution-badge";
@@ -55,9 +64,14 @@ import {
   PenSquare,
   Trash2,
   Clock3,
+  Award,
+  Calendar,
+  Mail,
+  GraduationCap,
+  ChevronLeft,
 } from "lucide-react";
 
-type Tab = "overview" | "applications" | "institutions" | "blogs";
+type Tab = "overview" | "applications" | "institutions" | "certificates" | "students" | "blogs";
 
 interface AuthData {
   address: string;
@@ -85,7 +99,7 @@ export default function AdminPage() {
   const [signingIn, setSigningIn] = useState(false);
 
   // Stats
-  const [stats, setStats] = useState<Record<string, unknown> | null>(null);
+  const [stats, setStats] = useState<AdminStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
 
   // Applications
@@ -100,6 +114,27 @@ export default function AdminPage() {
   const [loadingInstitutions, setLoadingInstitutions] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncResult, setSyncResult] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Certificates (platform-wide)
+  const [certificates, setCertificates] = useState<AdminCertificateRecord[]>([]);
+  const [certSearch, setCertSearch] = useState("");
+  const [certStatusFilter, setCertStatusFilter] = useState<"all" | "issued" | "revoked">("all");
+  const [certInstitutionFilter, setCertInstitutionFilter] = useState("");
+  const [loadingCerts, setLoadingCerts] = useState(false);
+  const [certPagination, setCertPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 });
+  const [selectedCert, setSelectedCert] = useState<AdminCertificateRecord | null>(null);
+
+  // Certificate revoke modal
+  const [certRevokeTarget, setCertRevokeTarget] = useState<AdminCertificateRecord | null>(null);
+  const [certRevokeConfirm, setCertRevokeConfirm] = useState("");
+
+  // Students (platform-wide)
+  const [students, setStudents] = useState<AdminStudentSummary[]>([]);
+  const [studentSearch, setStudentSearch] = useState("");
+  const [loadingStudents, setLoadingStudents] = useState(false);
+  const [studentPagination, setStudentPagination] = useState({ page: 1, limit: 20, total: 0, pages: 1 });
+  const [selectedStudent, setSelectedStudent] = useState<AdminStudentDetails | null>(null);
+  const [loadingStudentDetail, setLoadingStudentDetail] = useState(false);
 
   // Blogs
   const [blogs, setBlogs] = useState<BlogPost[]>([]);
@@ -281,6 +316,101 @@ export default function AdminPage() {
     }
   }, [auth, handleUnauthorizedAdminError, loadInstitutions]);
 
+  // Load certificates (platform-wide)
+  const loadCertificates = useCallback(async (page = 1) => {
+    if (!auth) return;
+    setLoadingCerts(true);
+    try {
+      const params: { status?: "issued" | "revoked"; institution?: string; search?: string; page: number; limit: number } = {
+        page,
+        limit: certPagination.limit,
+      };
+      if (certStatusFilter !== "all") params.status = certStatusFilter;
+      if (certInstitutionFilter) params.institution = certInstitutionFilter;
+      if (certSearch) params.search = certSearch;
+      const data = await adminListCertificates(auth, params);
+      setCertificates(data.certificates);
+      setCertPagination(data.pagination);
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setCertificates([]);
+        return;
+      }
+      setCertificates([]);
+    } finally {
+      setLoadingCerts(false);
+    }
+  }, [auth, certStatusFilter, certInstitutionFilter, certSearch, certPagination.limit, handleUnauthorizedAdminError]);
+
+  // Jump from Overview's "Recent Certificates" straight into the detail view
+  const jumpToCertificate = useCallback(async (certId: string) => {
+    if (!auth) return;
+    setActiveTab("certificates");
+    setLoadingCerts(true);
+    try {
+      const data = await adminGetCertificateDetails(auth, certId);
+      setSelectedCert(data.certificate);
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
+      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to load certificate" });
+    } finally {
+      setLoadingCerts(false);
+    }
+  }, [auth, handleUnauthorizedAdminError]);
+
+  // Admin-level revoke (works regardless of issuing institution)
+  const handleAdminRevoke = async () => {
+    if (!auth || !certRevokeTarget) return;
+    setActionLoading(certRevokeTarget.certId);
+    try {
+      const result = await adminRevokeCertificate(auth, certRevokeTarget.certId);
+      setActionResult({ type: "success", message: result.message || "Certificate revoked." });
+      setCertRevokeTarget(null);
+      setCertRevokeConfirm("");
+      setSelectedCert(null);
+      await Promise.all([loadCertificates(certPagination.page), loadStats()]);
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
+      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Revoke failed" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Load students (aggregated, platform-wide)
+  const loadStudents = useCallback(async (page = 1) => {
+    if (!auth) return;
+    setLoadingStudents(true);
+    try {
+      const data = await adminListStudents(auth, { page, limit: studentPagination.limit, search: studentSearch || undefined });
+      setStudents(data.students);
+      setStudentPagination(data.pagination);
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) {
+        setStudents([]);
+        return;
+      }
+      setStudents([]);
+    } finally {
+      setLoadingStudents(false);
+    }
+  }, [auth, studentSearch, studentPagination.limit, handleUnauthorizedAdminError]);
+
+  // Load full certificate history for a single student
+  const selectStudent = useCallback(async (studentId: string) => {
+    if (!auth) return;
+    setLoadingStudentDetail(true);
+    try {
+      const data = await adminGetStudentDetails(auth, studentId);
+      setSelectedStudent(data);
+    } catch (err) {
+      if (handleUnauthorizedAdminError(err)) return;
+      setActionResult({ type: "error", message: err instanceof Error ? err.message : "Failed to load student" });
+    } finally {
+      setLoadingStudentDetail(false);
+    }
+  }, [auth, handleUnauthorizedAdminError]);
+
   // Load blogs for admin moderation
   const loadBlogs = useCallback(async () => {
     if (!auth) return;
@@ -347,6 +477,20 @@ export default function AdminPage() {
       loadInstitutions();
     }
   }, [auth, activeTab, loadInstitutions]);
+
+  useEffect(() => {
+    if (auth && activeTab === "certificates") {
+      loadCertificates(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth, activeTab]);
+
+  useEffect(() => {
+    if (auth && activeTab === "students") {
+      loadStudents(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth, activeTab]);
 
   useEffect(() => {
     if (auth && activeTab === "blogs") {
@@ -504,6 +648,16 @@ export default function AdminPage() {
   const formatDateTime = (value: string | null | undefined) =>
     value ? new Date(value).toLocaleString() : "—";
 
+  const CertStatusBadge = ({ status }: { status: string }) => (
+    <span className={`rounded-sm px-2 py-0.5 text-[10px] font-medium uppercase ${
+      status === "revoked"
+        ? "bg-red-100 text-red-700 dark:bg-red-950/30 dark:text-red-400"
+        : "bg-green-100 text-green-700 dark:bg-green-950/30 dark:text-green-400"
+    }`}>
+      {status}
+    </span>
+  );
+
   // ── Not connected ───────────────────────────────────────────────────
   if (!wallet.connected) {
     return (
@@ -626,6 +780,8 @@ export default function AdminPage() {
           { id: "overview" as Tab, label: "Overview", icon: Activity },
           { id: "applications" as Tab, label: "Applications", icon: FileText },
           { id: "institutions" as Tab, label: "Institutions", icon: Building2 },
+          { id: "certificates" as Tab, label: "Certificates", icon: Award },
+          { id: "students" as Tab, label: "Students", icon: GraduationCap },
           { id: "blogs" as Tab, label: "Blogs", icon: PenSquare },
         ].map(({ id, label, icon: Icon }) => (
           <button
@@ -664,6 +820,95 @@ export default function AdminPage() {
             </div>
           ) : stats ? (
             <>
+              {/* Certificate & Student Analytics */}
+              <div className="mb-8">
+                <h3 className="mb-3 font-mono text-sm font-bold text-gray-700 dark:text-gray-300">Certificates &amp; Students</h3>
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                  {[
+                    { label: "Total Certificates", value: stats.certificates?.total, color: "text-gray-900 dark:text-white", icon: Award },
+                    { label: "Active", value: stats.certificates?.issued, color: "text-green-600 dark:text-green-400", icon: CheckCircle },
+                    { label: "Revoked", value: stats.certificates?.revoked, color: "text-red-600 dark:text-red-400", icon: Ban },
+                    { label: "Unique Students", value: stats.students?.total, color: "text-indigo-600 dark:text-indigo-400", icon: GraduationCap },
+                    { label: "Issued This Month", value: stats.certificates?.issuedThisMonth, color: "text-blue-600 dark:text-blue-400", icon: Calendar },
+                    { label: "Issued This Week", value: stats.certificates?.issuedThisWeek, color: "text-purple-600 dark:text-purple-400", icon: Activity },
+                    { label: "Emails Sent", value: stats.certificates?.emailsSent, color: "text-green-600 dark:text-green-400", icon: Mail },
+                    { label: "Email Failures", value: stats.certificates?.emailsFailed, color: "text-yellow-600 dark:text-yellow-400", icon: AlertTriangle },
+                  ].map(({ label, value, color, icon: Icon }) => (
+                    <div key={label} className="rounded-sm border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-[#111]">
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <Icon className="h-3.5 w-3.5" />
+                        {label}
+                      </div>
+                      <div className={`mt-1 font-mono text-2xl font-bold ${color}`}>
+                        {value != null ? String(value) : "—"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {stats.blockchain && (
+                  <p className="mt-2 text-xs text-gray-400">
+                    On-chain: {stats.blockchain.totalCertificates} certificates · {stats.blockchain.totalRevocations} revocations · {stats.blockchain.totalInstitutions} institutions
+                  </p>
+                )}
+              </div>
+
+              {/* Recent certificates & top institutions */}
+              <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+                <div>
+                  <h3 className="mb-3 font-mono text-sm font-bold text-gray-700 dark:text-gray-300">Recent Certificates</h3>
+                  {stats.certificates?.recent && stats.certificates.recent.length > 0 ? (
+                    <div className="space-y-2">
+                      {stats.certificates.recent.map((cert) => (
+                        <div key={cert.certId} className="flex items-center justify-between rounded-sm border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-[#111]">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <Award className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                            <div className="overflow-hidden">
+                              <div className="truncate text-sm font-medium text-gray-900 dark:text-white">{cert.studentName}</div>
+                              <div className="truncate text-xs text-gray-500 dark:text-gray-400">{cert.certId} · {cert.institution}</div>
+                            </div>
+                          </div>
+                          <div className="flex flex-shrink-0 items-center gap-2">
+                            <CertStatusBadge status={cert.status} />
+                            <button
+                              onClick={() => jumpToCertificate(cert.certId)}
+                              className="text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                            >
+                              <ChevronRight className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No certificates issued yet.</p>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="mb-3 font-mono text-sm font-bold text-gray-700 dark:text-gray-300">Top Institutions by Volume</h3>
+                  {stats.certificates?.topInstitutions && stats.certificates.topInstitutions.length > 0 ? (
+                    <div className="space-y-2">
+                      {stats.certificates.topInstitutions.map((inst) => (
+                        <div key={inst.institution} className="flex items-center justify-between rounded-sm border border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-[#111]">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <Building2 className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                            <span className="truncate text-sm font-medium text-gray-900 dark:text-white">{inst.institution}</span>
+                          </div>
+                          <div className="flex-shrink-0 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="font-mono font-semibold text-gray-900 dark:text-white">{inst.total}</span> total
+                            {" · "}{inst.issued} active{inst.revoked > 0 ? ` · ${inst.revoked} revoked` : ""}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">No certificate data yet.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Institution Applications */}
+              <h3 className="mb-3 font-mono text-sm font-bold text-gray-700 dark:text-gray-300">Institution Applications</h3>
               <div className="mb-8 grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-6">
                 {[
                   { label: "Total", value: stats.totalApplications, color: "text-gray-900 dark:text-white", icon: FileText },
@@ -1187,6 +1432,438 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* ── Certificates Tab ─────────────────────────────────────────── */}
+      {activeTab === "certificates" && !selectedCert && (
+        <div>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={certSearch}
+                onChange={(e) => setCertSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadCertificates(1)}
+                placeholder="Search cert ID, student name/ID/email, degree..."
+                className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+              />
+            </div>
+            <input
+              type="text"
+              value={certInstitutionFilter}
+              onChange={(e) => setCertInstitutionFilter(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && loadCertificates(1)}
+              placeholder="Institution"
+              className="w-40 rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+            />
+            <select
+              value={certStatusFilter}
+              onChange={(e) => setCertStatusFilter(e.target.value as "all" | "issued" | "revoked")}
+              className="rounded-sm border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+            >
+              <option value="all">All Status</option>
+              <option value="issued">Issued</option>
+              <option value="revoked">Revoked</option>
+            </select>
+            <button
+              onClick={() => loadCertificates(1)}
+              disabled={loadingCerts}
+              className="flex items-center gap-1 rounded-sm bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+            >
+              {loadingCerts ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Search
+            </button>
+          </div>
+
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{certPagination.total} total certificates</p>
+
+          {loadingCerts ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            </div>
+          ) : certificates.length === 0 ? (
+            <div className="rounded-sm border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-[#111]">
+              <Award className="mx-auto mb-3 h-8 w-8 text-gray-300" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">No certificates found.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {certificates.map((cert) => (
+                <div
+                  key={cert.certId}
+                  onClick={() => setSelectedCert(cert)}
+                  className="flex cursor-pointer items-center justify-between rounded-sm border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-blue-200 dark:border-gray-800 dark:bg-[#111] dark:hover:border-blue-800"
+                >
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <Award className="h-5 w-5 flex-shrink-0 text-gray-400" />
+                    <div className="overflow-hidden">
+                      <div className="truncate text-sm font-medium text-gray-900 dark:text-white">{cert.studentName}</div>
+                      <div className="flex items-center gap-2 truncate text-xs text-gray-500 dark:text-gray-400">
+                        <span className="font-mono">{cert.certId}</span>
+                        <span>·</span>
+                        <span>{cert.institution}</span>
+                        <span>·</span>
+                        <span>{cert.degree}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-3">
+                    <span className="hidden text-xs text-gray-400 sm:inline">
+                      {new Date(cert.createdAt || cert.issueDate).toLocaleDateString()}
+                    </span>
+                    <CertStatusBadge status={cert.status} />
+                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {certPagination.pages > 1 && (
+            <div className="mt-4 flex items-center justify-between text-sm">
+              <button
+                onClick={() => loadCertificates(certPagination.page - 1)}
+                disabled={certPagination.page <= 1 || loadingCerts}
+                className="flex items-center gap-1 rounded-sm border border-gray-300 px-3 py-1.5 text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
+              >
+                <ChevronLeft className="h-4 w-4" /> Prev
+              </button>
+              <span className="text-gray-500 dark:text-gray-400">Page {certPagination.page} of {certPagination.pages}</span>
+              <button
+                onClick={() => loadCertificates(certPagination.page + 1)}
+                disabled={certPagination.page >= certPagination.pages || loadingCerts}
+                className="flex items-center gap-1 rounded-sm border border-gray-300 px-3 py-1.5 text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
+              >
+                Next <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Certificate Detail ───────────────────────────────────────── */}
+      {activeTab === "certificates" && selectedCert && (
+        <div>
+          <button
+            onClick={() => setSelectedCert(null)}
+            className="mb-4 flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to list
+          </button>
+
+          <div className="rounded-sm border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-[#111]">
+            <div className="mb-6 flex items-start justify-between">
+              <div>
+                <h2 className="font-mono text-xl font-bold text-gray-900 dark:text-white">{selectedCert.studentName}</h2>
+                <div className="flex items-center gap-2">
+                  <p className="font-mono text-sm text-gray-500 dark:text-gray-400">{selectedCert.certId}</p>
+                  <button onClick={() => copyToClipboard(selectedCert.certId)} className="text-gray-400 hover:text-blue-600">
+                    {copied === selectedCert.certId ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              </div>
+              <CertStatusBadge status={selectedCert.status} />
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+              {[
+                { label: "Student ID", value: selectedCert.studentId || "—" },
+                { label: "Student Email", value: selectedCert.studentEmail || "—" },
+                { label: "Institution", value: selectedCert.institution },
+                { label: "Degree", value: selectedCert.degree },
+                { label: "Issue Date", value: new Date(selectedCert.issueDate).toLocaleDateString() },
+                { label: "Created At", value: formatDateTime(selectedCert.createdAt) },
+              ].map(({ label, value }) => (
+                <div key={label}>
+                  <span className="block text-xs uppercase tracking-wider text-gray-400">{label}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{value}</span>
+                </div>
+              ))}
+
+              <div className="md:col-span-2">
+                <span className="block text-xs uppercase tracking-wider text-gray-400">Student Wallet</span>
+                <span className="font-mono text-sm text-gray-900 dark:text-white">{selectedCert.studentWallet}</span>
+              </div>
+            </div>
+
+            {/* Blockchain */}
+            <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-800">
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">Blockchain</h3>
+              <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                <div>
+                  <span className="block text-xs uppercase tracking-wider text-gray-400">Transaction Hash</span>
+                  <span className="break-all font-mono text-xs text-green-700 dark:text-green-400">
+                    {selectedCert.blockchain?.txHash || "—"}
+                  </span>
+                </div>
+                <div>
+                  <span className="block text-xs uppercase tracking-wider text-gray-400">Block Number</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{selectedCert.blockchain?.blockNumber ?? "—"}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* IPFS */}
+            <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-800">
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">IPFS Document</h3>
+              {selectedCert.ipfs?.ipfsHash ? (
+                <a
+                  href={`${selectedCert.ipfs.gateway || "https://gateway.pinata.cloud"}/ipfs/${selectedCert.ipfs.ipfsHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 font-mono text-xs text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  {selectedCert.ipfs.ipfsHash} <ExternalLink className="h-3 w-3" />
+                </a>
+              ) : (
+                <span className="text-sm text-gray-400">—</span>
+              )}
+            </div>
+
+            {/* Email delivery */}
+            <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-800">
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">Email Delivery</h3>
+              <div className="flex items-center gap-2 text-sm">
+                {selectedCert.email?.sent ? (
+                  <>
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <span className="text-gray-900 dark:text-white">Sent {formatDateTime(selectedCert.email.sentAt)}</span>
+                  </>
+                ) : selectedCert.email?.error ? (
+                  <>
+                    <XCircle className="h-4 w-4 text-red-500" />
+                    <span className="text-gray-900 dark:text-white">Failed: {selectedCert.email.error}</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock3 className="h-4 w-4 text-gray-400" />
+                    <span className="text-gray-500 dark:text-gray-400">Not sent</span>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Revocation info */}
+            {selectedCert.status === "revoked" && (
+              <div className="mt-6 border-t border-gray-100 pt-6 dark:border-gray-800">
+                <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">Revocation</h3>
+                <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+                  <div>
+                    <span className="block text-xs uppercase tracking-wider text-gray-400">Revoked At</span>
+                    <span className="font-medium text-gray-900 dark:text-white">{formatDateTime(selectedCert.revokedAt)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs uppercase tracking-wider text-gray-400">Revoked By</span>
+                    <span className="font-mono text-xs text-gray-900 dark:text-white">{selectedCert.revokedBy || "—"}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="mt-6 flex flex-wrap gap-3 border-t border-gray-100 pt-6 dark:border-gray-800">
+              <Link
+                href={`/verify/${selectedCert.certId}`}
+                target="_blank"
+                className="flex items-center gap-2 rounded-sm border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-300"
+              >
+                <ExternalLink className="h-4 w-4" /> View Public Verification
+              </Link>
+              {selectedCert.status === "issued" && (
+                <button
+                  onClick={() => { setCertRevokeTarget(selectedCert); setCertRevokeConfirm(""); }}
+                  className="flex items-center gap-2 rounded-sm bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                >
+                  <Ban className="h-4 w-4" /> Revoke Certificate
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Students Tab ─────────────────────────────────────────────── */}
+      {activeTab === "students" && !selectedStudent && !loadingStudentDetail && (
+        <div>
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadStudents(1)}
+                placeholder="Search by student ID, name, or email..."
+                className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
+              />
+            </div>
+            <button
+              onClick={() => loadStudents(1)}
+              disabled={loadingStudents}
+              className="flex items-center gap-1 rounded-sm bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+            >
+              {loadingStudents ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+              Search
+            </button>
+          </div>
+
+          <p className="mb-3 text-xs text-gray-500 dark:text-gray-400">{studentPagination.total} unique students</p>
+
+          {loadingStudents ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            </div>
+          ) : students.length === 0 ? (
+            <div className="rounded-sm border border-gray-200 bg-white p-8 text-center dark:border-gray-800 dark:bg-[#111]">
+              <GraduationCap className="mx-auto mb-3 h-8 w-8 text-gray-300" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">No students found.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {students.map((student) => (
+                <div
+                  key={student.studentId}
+                  onClick={() => selectStudent(student.studentId)}
+                  className="flex cursor-pointer items-center justify-between rounded-sm border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-blue-200 dark:border-gray-800 dark:bg-[#111] dark:hover:border-blue-800"
+                >
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <GraduationCap className="h-5 w-5 flex-shrink-0 text-gray-400" />
+                    <div className="overflow-hidden">
+                      <div className="truncate text-sm font-medium text-gray-900 dark:text-white">{student.studentName}</div>
+                      <div className="flex items-center gap-2 truncate text-xs text-gray-500 dark:text-gray-400">
+                        <span className="font-mono">{student.studentId}</span>
+                        {student.studentEmail && (
+                          <>
+                            <span>·</span>
+                            <span>{student.studentEmail}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
+                    <span className="hidden sm:inline">
+                      {student.institutions.length} institution{student.institutions.length !== 1 ? "s" : ""}
+                    </span>
+                    <span>
+                      <span className="font-mono font-semibold text-gray-900 dark:text-white">{student.totalCertificates}</span> certs
+                    </span>
+                    {student.revokedCount > 0 && <span className="text-red-500">{student.revokedCount} revoked</span>}
+                    <ChevronRight className="h-4 w-4 text-gray-400" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {studentPagination.pages > 1 && (
+            <div className="mt-4 flex items-center justify-between text-sm">
+              <button
+                onClick={() => loadStudents(studentPagination.page - 1)}
+                disabled={studentPagination.page <= 1 || loadingStudents}
+                className="flex items-center gap-1 rounded-sm border border-gray-300 px-3 py-1.5 text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
+              >
+                <ChevronLeft className="h-4 w-4" /> Prev
+              </button>
+              <span className="text-gray-500 dark:text-gray-400">Page {studentPagination.page} of {studentPagination.pages}</span>
+              <button
+                onClick={() => loadStudents(studentPagination.page + 1)}
+                disabled={studentPagination.page >= studentPagination.pages || loadingStudents}
+                className="flex items-center gap-1 rounded-sm border border-gray-300 px-3 py-1.5 text-gray-700 disabled:opacity-50 dark:border-gray-600 dark:text-gray-300"
+              >
+                Next <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Student Detail ───────────────────────────────────────────── */}
+      {activeTab === "students" && (selectedStudent || loadingStudentDetail) && (
+        <div>
+          <button
+            onClick={() => setSelectedStudent(null)}
+            className="mb-4 flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back to list
+          </button>
+
+          {loadingStudentDetail ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            </div>
+          ) : selectedStudent ? (
+            <div>
+              <div className="mb-6 rounded-sm border border-gray-200 bg-white p-6 dark:border-gray-800 dark:bg-[#111]">
+                <div className="mb-4">
+                  <h2 className="font-mono text-xl font-bold text-gray-900 dark:text-white">{selectedStudent.studentName}</h2>
+                  <p className="font-mono text-sm text-gray-500 dark:text-gray-400">{selectedStudent.studentId}</p>
+                  {selectedStudent.studentEmail && (
+                    <p className="text-sm text-gray-500 dark:text-gray-400">{selectedStudent.studentEmail}</p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="block text-xs uppercase tracking-wider text-gray-400">Total Certificates</span>
+                    <span className="font-mono text-2xl font-bold text-gray-900 dark:text-white">{selectedStudent.stats.total}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs uppercase tracking-wider text-gray-400">Active</span>
+                    <span className="font-mono text-2xl font-bold text-green-600 dark:text-green-400">{selectedStudent.stats.issued}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs uppercase tracking-wider text-gray-400">Revoked</span>
+                    <span className="font-mono text-2xl font-bold text-red-600 dark:text-red-400">{selectedStudent.stats.revoked}</span>
+                  </div>
+                </div>
+
+                <div className="mt-4 border-t border-gray-100 pt-4 dark:border-gray-800">
+                  <span className="mb-2 block text-xs uppercase tracking-wider text-gray-400">Institutions</span>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedStudent.institutions.map((inst) => (
+                      <span
+                        key={inst.name}
+                        className="rounded-sm border border-gray-200 bg-gray-50 px-2 py-1 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                      >
+                        {inst.name} ({inst.count})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <h3 className="mb-3 font-mono text-sm font-bold text-gray-700 dark:text-gray-300">Certificate History</h3>
+              <div className="space-y-2">
+                {selectedStudent.certificates.map((cert) => (
+                  <div
+                    key={cert.certId}
+                    onClick={() => { setSelectedStudent(null); setSelectedCert(cert); setActiveTab("certificates"); }}
+                    className="flex cursor-pointer items-center justify-between rounded-sm border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-blue-200 dark:border-gray-800 dark:bg-[#111] dark:hover:border-blue-800"
+                  >
+                    <div className="overflow-hidden">
+                      <div className="truncate text-sm font-medium text-gray-900 dark:text-white">{cert.degree}</div>
+                      <div className="flex items-center gap-2 truncate text-xs text-gray-500 dark:text-gray-400">
+                        <span className="font-mono">{cert.certId}</span>
+                        <span>·</span>
+                        <span>{cert.institution}</span>
+                        <span>·</span>
+                        <span>{new Date(cert.createdAt || cert.issueDate).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-shrink-0 items-center gap-2">
+                      <CertStatusBadge status={cert.status} />
+                      <ChevronRight className="h-4 w-4 text-gray-400" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {/* ── Blogs Tab ────────────────────────────────────────────────── */}
       {activeTab === "blogs" && (
         <div className="space-y-6">
@@ -1504,6 +2181,29 @@ export default function AdminPage() {
           if (blogDeleteTarget && actionLoading === blogDeleteTarget.id) return;
           setBlogDeleteTarget(null);
           setBlogDeleteConfirm("");
+        }}
+      />
+
+      <ConfirmModal
+        open={Boolean(certRevokeTarget)}
+        title="Revoke Certificate"
+        description={
+          certRevokeTarget
+            ? `This will permanently revoke certificate ${certRevokeTarget.certId} (${certRevokeTarget.studentName}) on-chain. This action cannot be undone. Type the certificate ID to confirm.`
+            : ""
+        }
+        confirmLabel="Revoke Certificate"
+        danger
+        loading={Boolean(certRevokeTarget && actionLoading === certRevokeTarget.certId)}
+        confirmValue={certRevokeConfirm}
+        confirmEnabled={Boolean(certRevokeTarget && certRevokeConfirm.trim() === certRevokeTarget.certId)}
+        confirmPlaceholder={certRevokeTarget?.certId || "Type certificate ID"}
+        onConfirmValueChange={setCertRevokeConfirm}
+        onConfirm={() => void handleAdminRevoke()}
+        onCancel={() => {
+          if (certRevokeTarget && actionLoading === certRevokeTarget.certId) return;
+          setCertRevokeTarget(null);
+          setCertRevokeConfirm("");
         }}
       />
     </main>
