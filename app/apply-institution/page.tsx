@@ -26,6 +26,17 @@ import {
   User,
   Briefcase,
   Home,
+  Download,
+  Chrome,
+  ExternalLink,
+  BookOpen,
+  ChevronDown,
+  ChevronUp,
+  Shield,
+  Eye,
+  Lock,
+  Fingerprint,
+  Info,
 } from "lucide-react";
 
 const COUNTRIES = [
@@ -36,6 +47,225 @@ const COUNTRIES = [
   "Other",
 ];
 
+const WALLET_GUIDE_STEPS = [
+  {
+    number: 1,
+    title: "Install MetaMask Browser Extension",
+    icon: Download,
+    content: (
+      <>
+        <p className="mb-3">
+          MetaMask is a free, secure browser extension that acts as your digital wallet on the blockchain.
+          It works with Chrome, Firefox, Brave, and Edge browsers.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <a
+            href="https://metamask.io/download/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-sm bg-[#f6851b] px-3 py-2 text-xs font-bold text-white transition-colors hover:bg-[#e2761b]"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Download MetaMask
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+        <p className="mt-3 text-xs text-gray-500 dark:text-gray-500">
+          Only install MetaMask from the official website (metamask.io). Never install from unofficial sources.
+        </p>
+      </>
+    ),
+  },
+  {
+    number: 2,
+    title: "Create Your Wallet",
+    icon: Wallet,
+    content: (
+      <>
+        <p className="mb-2">After installing MetaMask:</p>
+        <ol className="mb-3 space-y-1.5 pl-4 text-sm">
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">a</span>
+            <span>Click the MetaMask fox icon in your browser toolbar</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">b</span>
+            <span>Select &quot;Create a new wallet&quot;</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">c</span>
+            <span>Create a strong password you&apos;ll remember</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-bold text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">d</span>
+            <span>
+              <strong className="text-red-600 dark:text-red-400">IMPORTANT:</strong> Write down your 12-word Secret Recovery Phrase on paper and store it safely.
+              This is the ONLY way to recover your wallet. Never share it with anyone.
+            </span>
+          </li>
+        </ol>
+      </>
+    ),
+  },
+  {
+    number: 3,
+    title: "Secure Your Recovery Phrase",
+    icon: Shield,
+    content: (
+      <>
+        <div className="mb-3 rounded-sm border border-red-200 bg-red-50 p-3 dark:border-red-800/40 dark:bg-red-950/20">
+          <p className="text-xs font-bold text-red-700 dark:text-red-400">
+            Your 12-word Secret Recovery Phrase is like the master key to your institution&apos;s wallet.
+          </p>
+        </div>
+        <ul className="space-y-1.5 text-sm">
+          <li className="flex items-start gap-2">
+            <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+            <span>Write it on paper and store in a secure location (e.g., a safe)</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <CheckCircle className="mt-0.5 h-4 w-4 shrink-0 text-green-500" />
+            <span>Consider making a second copy stored in a different secure location</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+            <span><strong>Never</strong> share it via WhatsApp, email, or any digital channel</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+            <span><strong>Never</strong> take a screenshot or photo of it</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+            <span>Edulocka staff will <strong>never</strong> ask you for your recovery phrase</span>
+          </li>
+        </ul>
+      </>
+    ),
+  },
+  {
+    number: 4,
+    title: "Connect Your Wallet Below",
+    icon: Fingerprint,
+    content: (
+      <>
+        <p className="mb-2">
+          Once MetaMask is installed and your wallet is created, click the
+          <strong className="text-blue-600 dark:text-blue-400"> &quot;Connect MetaMask Wallet&quot; </strong>
+          button in Step 2 of this form. MetaMask will pop up asking you to authorize the connection.
+        </p>
+        <p className="text-sm">
+          Your wallet address will be automatically detected and linked to your institution&apos;s application.
+          This is the address that will be authorized on the blockchain to issue certificates once approved.
+        </p>
+      </>
+    ),
+  },
+];
+
+function WalletSetupGuide({ onDismiss }: { onDismiss: () => void }) {
+  const [expandedStep, setExpandedStep] = useState<number | null>(1);
+
+  return (
+    <div className="mb-8 overflow-hidden rounded-sm border border-blue-200 bg-gradient-to-b from-blue-50 to-white dark:border-blue-800/50 dark:from-blue-950/30 dark:to-[#111]">
+      {/* Guide Header */}
+      <div className="border-b border-blue-100 bg-blue-600 px-6 py-5 dark:border-blue-800/50 dark:bg-blue-700">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-white/20">
+              <BookOpen className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <h2 className="font-mono text-lg font-bold text-white">
+                Wallet Setup Guide
+              </h2>
+              <p className="mt-0.5 text-sm text-blue-100">
+                You need a blockchain wallet to register your institution. Follow these steps to get started.
+              </p>
+            </div>
+          </div>
+          <span className="shrink-0 rounded-sm bg-white/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white">
+            Must Read
+          </span>
+        </div>
+      </div>
+
+      {/* What is a Wallet? */}
+      <div className="border-b border-blue-100 bg-blue-50/50 px-6 py-4 dark:border-blue-800/30 dark:bg-blue-950/10">
+        <div className="flex items-start gap-3">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-500" />
+          <div>
+            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+              What is a blockchain wallet?
+            </p>
+            <p className="mt-1 text-xs text-gray-600 dark:text-gray-400">
+              A blockchain wallet is like a digital identity for your institution on the Edulocka network.
+              It generates a unique address (like an account number) that identifies your institution
+              when issuing certificates. Unlike traditional accounts, you control the wallet directly &mdash;
+              no one else has access. The wallet is free to create and does not require any cryptocurrency to use with Edulocka.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Steps */}
+      <div className="px-6 py-4">
+        <div className="space-y-2">
+          {WALLET_GUIDE_STEPS.map((step) => {
+            const isExpanded = expandedStep === step.number;
+            const Icon = step.icon;
+            return (
+              <div key={step.number} className="rounded-sm border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+                <button
+                  onClick={() => setExpandedStep(isExpanded ? null : step.number)}
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left"
+                >
+                  <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                    isExpanded
+                      ? "bg-blue-600 text-white dark:bg-blue-500"
+                      : "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                  }`}>
+                    {step.number}
+                  </div>
+                  <div className="flex flex-1 items-center gap-2">
+                    <Icon className={`h-4 w-4 ${isExpanded ? "text-blue-600 dark:text-blue-400" : "text-gray-400"}`} />
+                    <span className={`text-sm font-medium ${isExpanded ? "text-gray-900 dark:text-white" : "text-gray-600 dark:text-gray-400"}`}>
+                      {step.title}
+                    </span>
+                  </div>
+                  {isExpanded ? (
+                    <ChevronUp className="h-4 w-4 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="h-4 w-4 text-gray-400" />
+                  )}
+                </button>
+                {isExpanded && (
+                  <div className="border-t border-gray-100 px-4 py-4 text-sm text-gray-700 dark:border-gray-700 dark:text-gray-300">
+                    {step.content}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Guide Footer */}
+      <div className="flex items-center justify-between border-t border-blue-100 bg-blue-50/30 px-6 py-3 dark:border-blue-800/30 dark:bg-blue-950/10">
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          Already have MetaMask installed? You can skip straight to the application form.
+        </p>
+        <button
+          onClick={onDismiss}
+          className="shrink-0 rounded-sm bg-blue-600 px-4 py-1.5 text-xs font-bold text-white transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+        >
+          I&apos;m Ready &mdash; Continue to Form
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function ApplyInstitutionPage() {
   const { wallet, connect } = useWallet();
   const [step, setStep] = useState(1);
@@ -44,6 +274,7 @@ export default function ApplyInstitutionPage() {
   const [applicationId, setApplicationId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showGuide, setShowGuide] = useState(true);
 
   // Track application status
   const [trackId, setTrackId] = useState("");
@@ -188,6 +419,22 @@ export default function ApplyInstitutionPage() {
           Submit your institution details for verification. Once approved, you&apos;ll be authorized on the blockchain to issue certificates.
         </p>
       </div>
+
+      {/* Wallet Setup Guide */}
+      {showGuide && (
+        <WalletSetupGuide onDismiss={() => setShowGuide(false)} />
+      )}
+
+      {/* Show guide again button */}
+      {!showGuide && (
+        <button
+          onClick={() => setShowGuide(true)}
+          className="mb-6 flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400"
+        >
+          <BookOpen className="h-4 w-4" />
+          Show Wallet Setup Guide
+        </button>
+      )}
 
       {/* Track Existing Application Toggle */}
       <div className="mb-6">
@@ -394,7 +641,7 @@ export default function ApplyInstitutionPage() {
                   name="contactPhone"
                   value={formData.contactPhone}
                   onChange={handleChange}
-                  placeholder="+1 (555) 000-0000"
+                  placeholder="+237 6XX XXX XXX"
                   className="w-full rounded-sm border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm text-gray-700 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-600 dark:bg-gray-900 dark:text-gray-200"
                 />
               </div>
@@ -476,13 +723,25 @@ export default function ApplyInstitutionPage() {
                 <CheckCircle className="ml-auto h-4 w-4 text-green-600 dark:text-green-400" />
               </div>
             ) : (
-              <button
-                onClick={connect}
-                className="flex w-full items-center justify-center gap-2 rounded-sm border border-dashed border-gray-300 bg-gray-50 px-3 py-3 text-sm font-medium text-gray-600 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:border-blue-500 dark:hover:text-blue-400"
-              >
-                <Wallet className="h-4 w-4" />
-                Connect MetaMask Wallet
-              </button>
+              <div>
+                <button
+                  onClick={connect}
+                  className="flex w-full items-center justify-center gap-2 rounded-sm border border-dashed border-gray-300 bg-gray-50 px-3 py-3 text-sm font-medium text-gray-600 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400 dark:hover:border-blue-500 dark:hover:text-blue-400"
+                >
+                  <Wallet className="h-4 w-4" />
+                  Connect MetaMask Wallet
+                </button>
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                  Don&apos;t have MetaMask?{" "}
+                  <button
+                    type="button"
+                    onClick={() => { setShowGuide(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                    className="font-medium underline hover:no-underline"
+                  >
+                    Read the wallet setup guide above
+                  </button>
+                </p>
+              </div>
             )}
             <p className="mt-1 text-xs text-gray-500 dark:text-gray-500">
               This wallet address will be authorized on the blockchain to issue certificates.

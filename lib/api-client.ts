@@ -1343,7 +1343,9 @@ export async function adminDeleteBlog(
 
 export interface StudentLoginResult {
   success: boolean;
-  token: string;
+  mfaRequired: boolean;
+  mfaMethod?: "authenticator" | "pin" | "email" | null;
+  token?: string;
   student: {
     studentId: string;
     studentName: string;
@@ -1436,5 +1438,108 @@ export async function adminListBlogLogs(
 
   return apiFetch(`/api/admin/blog-logs${qs}`, {
     headers: adminHeaders(auth.address, auth.signature, auth.message),
+  });
+}
+
+// ── Student MFA API ────────────────────────────────────────────────────────
+
+export interface MfaStatus {
+  mfaEnabled: boolean;
+  mfaMethod: "authenticator" | "pin" | "email" | null;
+  hasAuthenticator: boolean;
+  hasPin: boolean;
+  hasEmail: boolean;
+  email: string | null;
+}
+
+export interface MfaChallengeResult {
+  mfaRequired: boolean;
+  method?: "authenticator" | "pin" | "email";
+  emailHint?: string;
+}
+
+export async function getMfaStatus(token: string): Promise<MfaStatus> {
+  return apiFetch<MfaStatus>("/api/student/mfa/status", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function setupMfaAuthenticator(token: string): Promise<{
+  success: boolean;
+  secret: string;
+  otpauthUrl: string;
+  message: string;
+}> {
+  return apiFetch("/api/student/mfa/setup/authenticator", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function verifyMfaAuthenticator(token: string, code: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return apiFetch("/api/student/mfa/verify/authenticator", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function setupMfaPin(token: string, pin: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return apiFetch("/api/student/mfa/setup/pin", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ pin }),
+  });
+}
+
+export async function setupMfaEmail(token: string, email: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return apiFetch("/api/student/mfa/setup/email", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function verifyMfaEmail(token: string, code: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return apiFetch("/api/student/mfa/verify/email", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function disableMfa(token: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return apiFetch("/api/student/mfa/disable", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
+
+export async function mfaChallenge(studentId: string, institutionName: string): Promise<MfaChallengeResult> {
+  return apiFetch<MfaChallengeResult>("/api/student/mfa/challenge", {
+    method: "POST",
+    body: JSON.stringify({ studentId, institutionName }),
+  });
+}
+
+export async function mfaLoginVerify(studentId: string, institutionName: string, code: string): Promise<StudentLoginResult> {
+  return apiFetch<StudentLoginResult>("/api/student/mfa/login-verify", {
+    method: "POST",
+    body: JSON.stringify({ studentId, institutionName, code }),
   });
 }
