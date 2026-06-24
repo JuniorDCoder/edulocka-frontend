@@ -233,6 +233,7 @@ export default function TemplatesPage() {
   const [selectedBuilderElementId, setSelectedBuilderElementId] = useState<
     string | null
   >("builder-student");
+  const [selectedBuilderElementIds, setSelectedBuilderElementIds] = useState<Set<string>>(new Set());
   const [isSavingBuilder, setIsSavingBuilder] = useState(false);
   const [aiMessages, setAiMessages] = useState<AiTemplateMessage[]>([
     {
@@ -485,7 +486,28 @@ export default function TemplatesPage() {
       e.stopPropagation();
       const el = builderElements.find((item) => item.id === elementId);
       if (!el) return;
-      setSelectedBuilderElementId(elementId);
+
+      if (e.shiftKey) {
+        setSelectedBuilderElementIds((prev) => {
+          const next = new Set(prev);
+          if (selectedBuilderElementId && !next.has(selectedBuilderElementId)) {
+            next.add(selectedBuilderElementId);
+          }
+          if (next.has(elementId)) {
+            next.delete(elementId);
+          } else {
+            next.add(elementId);
+          }
+          return next;
+        });
+        setSelectedBuilderElementId(elementId);
+      } else {
+        if (!selectedBuilderElementIds.has(elementId)) {
+          setSelectedBuilderElementIds(new Set());
+        }
+        setSelectedBuilderElementId(elementId);
+      }
+
       setDragState({
         elementId,
         startX: e.clientX,
@@ -495,7 +517,7 @@ export default function TemplatesPage() {
       });
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     },
-    [builderElements],
+    [builderElements, selectedBuilderElementId, selectedBuilderElementIds],
   );
 
   const handleCanvasPointerMove = useCallback(
@@ -538,6 +560,100 @@ export default function TemplatesPage() {
     },
     [],
   );
+
+  // Canvas dimensions (the inner area of the builder canvas, excluding border)
+  const CANVAS_W = 820;
+  const CANVAS_H = 560;
+
+  const getSelectedIds = useCallback(() => {
+    if (selectedBuilderElementIds.size > 0) return selectedBuilderElementIds;
+    if (selectedBuilderElementId) return new Set([selectedBuilderElementId]);
+    return new Set<string>();
+  }, [selectedBuilderElementIds, selectedBuilderElementId]);
+
+  const alignElements = useCallback(
+    (mode: "left" | "centerH" | "right" | "top" | "centerV" | "bottom") => {
+      const ids = getSelectedIds();
+      if (ids.size === 0) return;
+      const selected = builderElements.filter((el) => ids.has(el.id));
+      if (selected.length === 0) return;
+
+      setBuilderElements((items) =>
+        items.map((el) => {
+          if (!ids.has(el.id)) return el;
+          switch (mode) {
+            case "left": {
+              const minX = Math.min(...selected.map((s) => s.x));
+              return { ...el, x: minX };
+            }
+            case "right": {
+              const maxRight = Math.max(...selected.map((s) => s.x + s.width));
+              return { ...el, x: maxRight - el.width };
+            }
+            case "centerH": {
+              if (selected.length === 1) {
+                return { ...el, x: Math.round((CANVAS_W - el.width) / 2) };
+              }
+              const minX = Math.min(...selected.map((s) => s.x));
+              const maxRight = Math.max(...selected.map((s) => s.x + s.width));
+              const groupCenter = (minX + maxRight) / 2;
+              return { ...el, x: Math.round(groupCenter - el.width / 2) };
+            }
+            case "top": {
+              const minY = Math.min(...selected.map((s) => s.y));
+              return { ...el, y: minY };
+            }
+            case "bottom": {
+              const maxBottom = Math.max(...selected.map((s) => s.y + s.height));
+              return { ...el, y: maxBottom - el.height };
+            }
+            case "centerV": {
+              if (selected.length === 1) {
+                return { ...el, y: Math.round((CANVAS_H - el.height) / 2) };
+              }
+              const minY = Math.min(...selected.map((s) => s.y));
+              const maxBottom = Math.max(...selected.map((s) => s.y + s.height));
+              const groupCenter = (minY + maxBottom) / 2;
+              return { ...el, y: Math.round(groupCenter - el.height / 2) };
+            }
+            default:
+              return el;
+          }
+        }),
+      );
+    },
+    [builderElements, getSelectedIds],
+  );
+
+  const selectAllElements = useCallback(() => {
+    const allIds = new Set(builderElements.map((el) => el.id));
+    setSelectedBuilderElementIds(allIds);
+    setSelectedBuilderElementId(builderElements[0]?.id || null);
+  }, [builderElements]);
+
+  const clearMultiSelect = useCallback(() => {
+    setSelectedBuilderElementIds(new Set());
+  }, []);
+
+  const buildPreviewHtml = useCallback(() => {
+    const raw = buildManualTemplateHtml();
+    const sampleData: Record<string, string> = {
+      "{{studentName}}": "Jane Amara Doe",
+      "{{degree}}": "Bachelor of Science in Computer Engineering",
+      "{{institution}}": builderInstitutionName || "University of Technology",
+      "{{issueDate}}": "June 15, 2026",
+      "{{certId}}": "CERT-2026-A1B2C3D4",
+      "{{qrDataUrl}}": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23f1f5f9'/%3E%3Crect x='10' y='10' width='20' height='20' fill='%230f172a'/%3E%3Crect x='35' y='10' width='10' height='10' fill='%230f172a'/%3E%3Crect x='70' y='10' width='20' height='20' fill='%230f172a'/%3E%3Crect x='10' y='35' width='10' height='10' fill='%230f172a'/%3E%3Crect x='50' y='35' width='10' height='10' fill='%230f172a'/%3E%3Crect x='80' y='35' width='10' height='10' fill='%230f172a'/%3E%3Crect x='10' y='50' width='10' height='10' fill='%230f172a'/%3E%3Crect x='35' y='50' width='30' height='10' fill='%230f172a'/%3E%3Crect x='80' y='50' width='10' height='10' fill='%230f172a'/%3E%3Crect x='10' y='70' width='20' height='20' fill='%230f172a'/%3E%3Crect x='35' y='70' width='10' height='10' fill='%230f172a'/%3E%3Crect x='50' y='70' width='10' height='20' fill='%230f172a'/%3E%3Crect x='70' y='70' width='20' height='10' fill='%230f172a'/%3E%3Crect x='70' y='80' width='10' height='10' fill='%230f172a'/%3E%3C/svg%3E",
+      "{{verifyUrl}}": "https://edulocka.vercel.app/verify?certId=CERT-2026-A1B2C3D4",
+      "{{ipfsHash}}": "QmSampleHash123456789",
+      "{{studentId}}": "STU-2026-001",
+    };
+    let html = raw;
+    for (const [key, value] of Object.entries(sampleData)) {
+      html = html.replaceAll(key, value);
+    }
+    return html;
+  }, [buildManualTemplateHtml, builderInstitutionName]);
 
   const updateBuilderElement = (id: string, patch: Partial<BuilderElement>) => {
     setBuilderElements((items) =>
@@ -1054,7 +1170,7 @@ export default function TemplatesPage() {
                     <button
                       onClick={() => {
                         setPreviewName("Visual Builder Preview");
-                        setPreviewHTML(buildManualTemplateHtml());
+                        setPreviewHTML(buildPreviewHtml());
                       }}
                       className="flex items-center gap-2 rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 hover:border-blue-500 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
                     >
@@ -1149,13 +1265,57 @@ export default function TemplatesPage() {
                     </div>
                   </div>
 
-                  <div className="overflow-auto bg-slate-100 p-4 dark:bg-gray-950">
+                  <div className="overflow-auto bg-slate-100 dark:bg-gray-950">
+                    {/* Alignment toolbar */}
+                    <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-white px-4 py-2 dark:border-gray-800 dark:bg-gray-900">
+                      <span className="mr-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 dark:text-gray-500">Align:</span>
+                      {([
+                        { mode: "left" as const, label: "Left", icon: "border-l-2" },
+                        { mode: "centerH" as const, label: "Center H", icon: "border-x-0" },
+                        { mode: "right" as const, label: "Right", icon: "border-r-2" },
+                        { mode: "top" as const, label: "Top", icon: "border-t-2" },
+                        { mode: "centerV" as const, label: "Center V", icon: "border-y-0" },
+                        { mode: "bottom" as const, label: "Bottom", icon: "border-b-2" },
+                      ]).map(({ mode, label }) => (
+                        <button
+                          key={mode}
+                          onClick={() => alignElements(mode)}
+                          disabled={getSelectedIds().size === 0}
+                          className="rounded-none border border-gray-200 bg-gray-50 px-2 py-1 text-[10px] font-medium text-gray-600 hover:border-blue-500 hover:text-blue-600 disabled:opacity-40 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:border-blue-500"
+                          title={`Align ${label}`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      <div className="mx-1 h-4 w-px bg-gray-200 dark:bg-gray-700" />
+                      <button
+                        onClick={selectAllElements}
+                        className="rounded-none border border-gray-200 bg-gray-50 px-2 py-1 text-[10px] font-medium text-gray-600 hover:border-blue-500 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:border-blue-500"
+                      >
+                        Select All
+                      </button>
+                      {selectedBuilderElementIds.size > 0 && (
+                        <button
+                          onClick={clearMultiSelect}
+                          className="rounded-none border border-gray-200 bg-gray-50 px-2 py-1 text-[10px] font-medium text-gray-600 hover:border-blue-500 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-400 dark:hover:border-blue-500"
+                        >
+                          Deselect ({selectedBuilderElementIds.size})
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-4">
                     <div
                       ref={canvasRef}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={handleBuilderDrop}
                       onPointerMove={handleCanvasPointerMove}
                       onPointerUp={handleCanvasPointerUp}
+                      onClick={(e) => {
+                        if (e.target === e.currentTarget) {
+                          setSelectedBuilderElementId(null);
+                          setSelectedBuilderElementIds(new Set());
+                        }
+                      }}
                       className="relative mx-auto h-[560px] w-[820px] overflow-hidden border-[14px] border-slate-900 bg-white shadow-sm select-none dark:border-slate-700"
                     >
                       <div
@@ -1170,6 +1330,8 @@ export default function TemplatesPage() {
                           className={`absolute flex items-center justify-center border-2 px-2 text-slate-900 ${
                             selectedBuilderElementId === element.id
                               ? "border-blue-600 bg-blue-50/90 ring-2 ring-blue-300"
+                              : selectedBuilderElementIds.has(element.id)
+                              ? "border-blue-400 bg-blue-50/60 ring-1 ring-blue-200"
                               : "border-slate-300 bg-white/80 hover:border-blue-400"
                           } ${dragState?.elementId === element.id ? "cursor-grabbing opacity-90" : "cursor-grab"}`}
                           style={{
@@ -1199,6 +1361,7 @@ export default function TemplatesPage() {
                           )}
                         </div>
                       ))}
+                    </div>
                     </div>
                   </div>
 
