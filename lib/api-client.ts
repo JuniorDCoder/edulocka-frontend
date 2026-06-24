@@ -1343,7 +1343,9 @@ export async function adminDeleteBlog(
 
 export interface StudentLoginResult {
   success: boolean;
-  mfaRequired: boolean;
+  passphraseRequired?: boolean;
+  hasAccount?: boolean;
+  mfaRequired?: boolean;
   mfaMethod?: "authenticator" | "pin" | "email" | null;
   token?: string;
   student: {
@@ -1381,6 +1383,7 @@ export interface StudentLookupResult {
   studentName: string;
   institutions: { name: string; count: number }[];
   total: number;
+  hasAccount: boolean;
 }
 
 /** Look up which institutions have issued certificates for a student ID.
@@ -1392,11 +1395,23 @@ export async function lookupStudentById(studentId: string): Promise<StudentLooku
   );
 }
 
-/** Authenticate as a student using student ID */
-export async function studentLogin(studentId: string, institutionName?: string): Promise<StudentLoginResult> {
+/** Authenticate as a student using student ID + passphrase */
+export async function studentLogin(studentId: string, institutionName?: string, passphrase?: string): Promise<StudentLoginResult> {
   return apiFetch<StudentLoginResult>("/api/student/login", {
     method: "POST",
-    body: JSON.stringify({ studentId, institutionName }),
+    body: JSON.stringify({ studentId, institutionName, passphrase }),
+  });
+}
+
+/** Change student passphrase */
+export async function changeStudentPassphrase(token: string, currentPassphrase: string, newPassphrase: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return apiFetch("/api/student/change-passphrase", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ currentPassphrase, newPassphrase }),
   });
 }
 
@@ -1450,6 +1465,7 @@ export interface MfaStatus {
   hasPin: boolean;
   hasEmail: boolean;
   email: string | null;
+  emailAvailable: boolean;
 }
 
 export interface MfaChallengeResult {
@@ -1498,14 +1514,15 @@ export async function setupMfaPin(token: string, pin: string): Promise<{
   });
 }
 
-export async function setupMfaEmail(token: string, email: string): Promise<{
+export async function setupMfaEmail(token: string): Promise<{
   success: boolean;
+  emailHint?: string;
   message: string;
 }> {
   return apiFetch("/api/student/mfa/setup/email", {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({}),
   });
 }
 

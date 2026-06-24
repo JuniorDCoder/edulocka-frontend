@@ -70,7 +70,7 @@ export function Footer() {
               {[
                 { href: "/issue", label: "Issue Certificate" },
                 { href: "/verify", label: "Verify Certificate" },
-                { href: "/dashboard", label: "Dashboard" },
+                { href: "/dashboard", label: "Institution Admin" },
                 { href: "/blogs", label: "Blog" },
               ].map((link) => (
                 <li key={link.href}>

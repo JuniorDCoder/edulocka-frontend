@@ -60,7 +60,6 @@ export default function StudentSecurityPage() {
   const [pinConfirm, setPinConfirm] = useState("");
 
   // Email setup
-  const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
   const [emailSent, setEmailSent] = useState(false);
 
@@ -106,7 +105,6 @@ export default function StudentSecurityPage() {
     setTotpCode("");
     setPin("");
     setPinConfirm("");
-    setEmail("");
     setEmailCode("");
     setEmailSent(false);
     setError(null);
@@ -188,12 +186,12 @@ export default function StudentSecurityPage() {
 
   async function sendEmailCode() {
     const token = getStudentToken();
-    if (!token || !email.trim()) return;
+    if (!token) return;
 
     setFlowLoading(true);
     setError(null);
     try {
-      await setupMfaEmail(token, email.trim());
+      await setupMfaEmail(token);
       setEmailSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send verification code.");
@@ -362,10 +360,15 @@ export default function StudentSecurityPage() {
               </div>
             </button>
 
-            {/* Email */}
+            {/* Email — only available if institution set an email */}
             <button
               onClick={() => { resetFlow(); setSetupFlow("email"); }}
-              className="flex w-full items-center gap-4 rounded-none border border-gray-200 bg-white p-5 text-left transition-colors hover:border-blue-300 hover:bg-blue-50/50 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-blue-600 dark:hover:bg-blue-950/20"
+              disabled={!status?.emailAvailable}
+              className={`flex w-full items-center gap-4 rounded-none border border-gray-200 bg-white p-5 text-left transition-colors ${
+                status?.emailAvailable
+                  ? "hover:border-blue-300 hover:bg-blue-50/50 dark:hover:border-blue-600 dark:hover:bg-blue-950/20"
+                  : "cursor-not-allowed opacity-60"
+              } dark:border-gray-700 dark:bg-gray-900`}
             >
               <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-none bg-blue-100 dark:bg-blue-900/30">
                 <Mail className="h-5 w-5 text-blue-600 dark:text-blue-400" />
@@ -373,7 +376,10 @@ export default function StudentSecurityPage() {
               <div className="flex-1">
                 <p className="text-sm font-bold text-gray-900 dark:text-white">Email Verification</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Receive a one-time code via email each time you log in
+                  {status?.emailAvailable
+                    ? "Receive a one-time code to the email your institution has on file"
+                    : "Not available — your institution did not include an email with your certificates"
+                  }
                 </p>
               </div>
             </button>
@@ -524,7 +530,7 @@ export default function StudentSecurityPage() {
           </div>
         )}
 
-        {/* Email Setup Flow */}
+        {/* Email Setup Flow — uses institution-set email, no user input */}
         {setupFlow === "email" && (
           <div className="rounded-none border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-900">
             <h3 className="mb-4 flex items-center gap-2 text-sm font-bold text-gray-900 dark:text-white">
@@ -535,17 +541,10 @@ export default function StudentSecurityPage() {
             <div className="space-y-4">
               {!emailSent ? (
                 <>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
-                      Email address for verification codes
-                    </label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="your@email.com"
-                      className="w-full rounded-none border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white"
-                    />
+                  <div className="rounded-none border border-blue-200 bg-blue-50 p-3 dark:border-blue-800/40 dark:bg-blue-950/20">
+                    <p className="text-sm text-blue-700 dark:text-blue-400">
+                      A verification code will be sent to the email address your institution included when issuing your certificates. You cannot change this email.
+                    </p>
                   </div>
 
                   {error && (
@@ -561,7 +560,7 @@ export default function StudentSecurityPage() {
                     </button>
                     <button
                       onClick={sendEmailCode}
-                      disabled={flowLoading || !email.includes("@")}
+                      disabled={flowLoading}
                       className="flex flex-1 items-center justify-center gap-2 rounded-none bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 dark:bg-blue-500"
                     >
                       {flowLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
@@ -573,7 +572,7 @@ export default function StudentSecurityPage() {
                 <>
                   <div className="rounded-none border border-green-200 bg-green-50 p-3 dark:border-green-800/40 dark:bg-green-950/20">
                     <p className="text-sm text-green-700 dark:text-green-400">
-                      Code sent to <strong>{email}</strong>. Check your inbox.
+                      Code sent to your institution email. Check your inbox.
                     </p>
                   </div>
 

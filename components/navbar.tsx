@@ -21,7 +21,7 @@ const navGroups = [
       { href: "/issue", label: "Issue Certificate" },
       { href: "/bulk", label: "Bulk Issuance" },
       { href: "/verify", label: "Verify Certificate" },
-      { href: "/dashboard", label: "Dashboard" },
+      { href: "/dashboard", label: "Institution Admin" },
       { href: "/student/login", label: "Student Portal" },
     ],
   },

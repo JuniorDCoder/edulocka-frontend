@@ -445,19 +445,42 @@ export default function BulkPage() {
               )}
             </div>
 
-            {/* CSV format hint */}
+            {/* CSV format hint + template download */}
             <div className="mt-6 rounded-none border-2 border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-              <h3 className="flex items-center gap-2 font-mono text-xs font-bold text-gray-900 dark:text-white">
-                <FileText className="h-3.5 w-3.5 text-blue-500" />
-                EXPECTED CSV FORMAT
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="flex items-center gap-2 font-mono text-xs font-bold text-gray-900 dark:text-white">
+                  <FileText className="h-3.5 w-3.5 text-blue-500" />
+                  EXPECTED CSV FORMAT
+                </h3>
+                <button
+                  onClick={() => {
+                    const csv = [
+                      "studentName,studentId,degree,institution,issueDate,email",
+                      "Alice Johnson,STU-2026-001,B.S. Computer Science,Your Institution Name,2026-06-15,alice@example.com",
+                      "Bob Smith,STU-2026-002,MBA,Your Institution Name,2026-06-15,bob@example.com",
+                      "Jane Doe,STU-2026-003,B.A. Economics,Your Institution Name,2026-06-15,",
+                    ].join("\n");
+                    const blob = new Blob([csv], { type: "text/csv" });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = "edulocka-bulk-template.csv";
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="flex items-center gap-1.5 rounded-none border-2 border-blue-600 bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 dark:border-blue-500"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download Template
+                </button>
+              </div>
               <pre className="mt-3 overflow-x-auto rounded-sm bg-gray-50 p-3 font-mono text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
 {`studentName,studentId,degree,institution,issueDate,email
 Alice Johnson,STU-2026-001,B.S. Computer Science,MIT,2026-06-15,alice@example.com
 Bob Smith,STU-2026-002,MBA,Harvard,2026-06-15,bob@example.com`}
               </pre>
               <p className="mt-2 text-xs text-gray-400">
-                Column names are flexible — &quot;Student Name&quot;, &quot;student_name&quot;, &quot;name&quot;, &quot;fullName&quot; all work. Email column is optional.
+                Column names are flexible — &quot;Student Name&quot;, &quot;student_name&quot;, &quot;name&quot;, &quot;fullName&quot; all work. Email column is optional but recommended for student portal access.
               </p>
             </div>
           </div>
