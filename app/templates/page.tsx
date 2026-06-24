@@ -1052,6 +1052,16 @@ export default function TemplatesPage() {
                       Reset Layout
                     </button>
                     <button
+                      onClick={() => {
+                        setPreviewName("Visual Builder Preview");
+                        setPreviewHTML(buildManualTemplateHtml());
+                      }}
+                      className="flex items-center gap-2 rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-600 hover:border-blue-500 hover:text-blue-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview
+                    </button>
+                    <button
                       onClick={handleSaveManualTemplate}
                       disabled={isSavingBuilder || !wallet.connected}
                       className="flex items-center gap-2 rounded-none border-2 border-blue-600 bg-blue-600 px-4 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
