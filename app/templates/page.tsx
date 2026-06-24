@@ -52,6 +52,9 @@ import {
   Paintbrush,
   ChevronDown,
   ChevronUp,
+  ImagePlus,
+  Stamp,
+  GripVertical,
 } from "lucide-react";
 
 const AI_SUGGESTIONS = [
@@ -68,7 +71,8 @@ type BuilderElementType =
   | "certId"
   | "qrDataUrl"
   | "verifyUrl"
-  | "signature";
+  | "signature"
+  | "stampImage";
 
 interface BuilderElement {
   id: string;
@@ -81,6 +85,7 @@ interface BuilderElement {
   height: number;
   fontSize: number;
   align: "left" | "center" | "right";
+  imageData?: string;
 }
 
 const BUILDER_PALETTE: Array<Omit<BuilderElement, "id" | "x" | "y">> = [
@@ -156,6 +161,15 @@ const BUILDER_PALETTE: Array<Omit<BuilderElement, "id" | "x" | "y">> = [
     fontSize: 12,
     align: "center",
   },
+  {
+    type: "stampImage",
+    label: "Stamp / Seal Image",
+    placeholder: "Upload stamp image",
+    width: 120,
+    height: 120,
+    fontSize: 10,
+    align: "center",
+  },
 ];
 
 const STARTER_ELEMENTS: BuilderElement[] = [
@@ -228,6 +242,17 @@ export default function TemplatesPage() {
     },
   ]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const stampInputRef = useRef<HTMLInputElement>(null);
+
+  // Canvas drag state for repositioning elements
+  const [dragState, setDragState] = useState<{
+    elementId: string;
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
 
   // Build wallet auth object if connected (only for uploads/previews that need signing)
   const getWalletAuth = useCallback((): WalletAuth | undefined => {
@@ -386,6 +411,12 @@ export default function TemplatesPage() {
       if (element.type === "qrDataUrl") {
         return `<img src="{{qrDataUrl}}" alt="Verification QR" style="${baseStyle}object-fit:contain;border:1px solid #cbd5e1;padding:6px;background:#ffffff;" />`;
       }
+      if (element.type === "stampImage" && element.imageData) {
+        return `<img src="${element.imageData}" alt="Institution Stamp" style="${baseStyle}object-fit:contain;" />`;
+      }
+      if (element.type === "stampImage") {
+        return `<div style="${baseStyle}border:2px dashed #94a3b8;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:11px;">Stamp</div>`;
+      }
       if (element.type === "verifyUrl") {
         return `<a href="{{verifyUrl}}" style="${baseStyle}font-family:monospace;color:${builderAccent};text-decoration:none;word-break:break-all;">{{verifyUrl}}</a>`;
       }
@@ -447,6 +478,66 @@ export default function TemplatesPage() {
       );
     }
   };
+
+  const handleCanvasPointerDown = useCallback(
+    (elementId: string, e: React.PointerEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const el = builderElements.find((item) => item.id === elementId);
+      if (!el) return;
+      setSelectedBuilderElementId(elementId);
+      setDragState({
+        elementId,
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: el.x,
+        origY: el.y,
+      });
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [builderElements],
+  );
+
+  const handleCanvasPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!dragState) return;
+      const dx = e.clientX - dragState.startX;
+      const dy = e.clientY - dragState.startY;
+      const newX = Math.max(0, Math.min(780, dragState.origX + dx));
+      const newY = Math.max(0, Math.min(530, dragState.origY + dy));
+      setBuilderElements((items) =>
+        items.map((item) =>
+          item.id === dragState.elementId ? { ...item, x: Math.round(newX), y: Math.round(newY) } : item,
+        ),
+      );
+    },
+    [dragState],
+  );
+
+  const handleCanvasPointerUp = useCallback(() => {
+    setDragState(null);
+  }, []);
+
+  const handleStampUpload = useCallback(
+    (elementId: string, file: File) => {
+      if (!file.type.startsWith("image/")) return;
+      if (file.size > 2 * 1024 * 1024) {
+        setError("Image too large. Maximum 2MB.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        setBuilderElements((items) =>
+          items.map((item) =>
+            item.id === elementId ? { ...item, imageData: dataUrl } : item,
+          ),
+        );
+      };
+      reader.readAsDataURL(file);
+    },
+    [],
+  );
 
   const updateBuilderElement = (id: string, patch: Partial<BuilderElement>) => {
     setBuilderElements((items) =>
@@ -1003,6 +1094,8 @@ export default function TemplatesPage() {
                             <QrCode className="h-4 w-4" />
                           ) : item.type === "signature" ? (
                             <Award className="h-4 w-4" />
+                          ) : item.type === "stampImage" ? (
+                            <Stamp className="h-4 w-4" />
                           ) : (
                             <Type className="h-4 w-4" />
                           )}
@@ -1048,9 +1141,12 @@ export default function TemplatesPage() {
 
                   <div className="overflow-auto bg-slate-100 p-4 dark:bg-gray-950">
                     <div
+                      ref={canvasRef}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={handleBuilderDrop}
-                      className="relative mx-auto h-[560px] w-[820px] overflow-hidden border-[14px] border-slate-900 bg-white shadow-sm dark:border-slate-700"
+                      onPointerMove={handleCanvasPointerMove}
+                      onPointerUp={handleCanvasPointerUp}
+                      className="relative mx-auto h-[560px] w-[820px] overflow-hidden border-[14px] border-slate-900 bg-white shadow-sm select-none dark:border-slate-700"
                     >
                       <div
                         className="pointer-events-none absolute inset-6 border-2"
@@ -1058,16 +1154,14 @@ export default function TemplatesPage() {
                       />
                       <div className="pointer-events-none absolute inset-12 bg-[linear-gradient(90deg,rgba(37,99,235,.05)_1px,transparent_1px),linear-gradient(rgba(37,99,235,.05)_1px,transparent_1px)] bg-[length:28px_28px]" />
                       {builderElements.map((element) => (
-                        <button
+                        <div
                           key={element.id}
-                          onClick={() =>
-                            setSelectedBuilderElementId(element.id)
-                          }
+                          onPointerDown={(e) => handleCanvasPointerDown(element.id, e)}
                           className={`absolute flex items-center justify-center border-2 px-2 text-slate-900 ${
                             selectedBuilderElementId === element.id
-                              ? "border-blue-600 bg-blue-50/90"
+                              ? "border-blue-600 bg-blue-50/90 ring-2 ring-blue-300"
                               : "border-slate-300 bg-white/80 hover:border-blue-400"
-                          }`}
+                          } ${dragState?.elementId === element.id ? "cursor-grabbing opacity-90" : "cursor-grab"}`}
                           style={{
                             left: element.x,
                             top: element.y,
@@ -1075,14 +1169,25 @@ export default function TemplatesPage() {
                             height: element.height,
                             fontSize: element.fontSize,
                             textAlign: element.align,
+                            touchAction: "none",
                           }}
                         >
                           {element.type === "qrDataUrl" ? (
                             <QrCode className="h-9 w-9 text-slate-500" />
+                          ) : element.type === "stampImage" && element.imageData ? (
+                            <img src={element.imageData} alt="Stamp" className="h-full w-full object-contain" draggable={false} />
+                          ) : element.type === "stampImage" ? (
+                            <div className="flex flex-col items-center gap-1 text-slate-400">
+                              <Stamp className="h-6 w-6" />
+                              <span className="text-[9px]">Stamp</span>
+                            </div>
                           ) : (
                             element.placeholder
                           )}
-                        </button>
+                          {selectedBuilderElementId === element.id && (
+                            <GripVertical className="absolute -right-0.5 top-0.5 h-3.5 w-3.5 text-blue-400" />
+                          )}
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -1097,22 +1202,82 @@ export default function TemplatesPage() {
                           <Move className="h-3.5 w-3.5" />
                           {selectedBuilderElement.label}
                         </div>
-                        <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
-                          Text
-                          <input
-                            value={selectedBuilderElement.placeholder}
-                            onChange={(event) =>
-                              updateBuilderElement(selectedBuilderElement.id, {
-                                placeholder: event.target.value,
-                              })
-                            }
-                            disabled={
-                              selectedBuilderElement.type === "qrDataUrl" ||
-                              selectedBuilderElement.type === "verifyUrl"
-                            }
-                            className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
-                          />
-                        </label>
+                        <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                          Drag on the canvas to reposition
+                        </p>
+
+                        {selectedBuilderElement.type === "stampImage" ? (
+                          <div className="space-y-2">
+                            <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                              Stamp / Seal Image
+                            </label>
+                            <input
+                              ref={stampInputRef}
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleStampUpload(selectedBuilderElement.id, file);
+                                if (stampInputRef.current) stampInputRef.current.value = "";
+                              }}
+                              className="hidden"
+                            />
+                            {selectedBuilderElement.imageData ? (
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-center rounded-none border-2 border-gray-200 bg-gray-50 p-2 dark:border-gray-700 dark:bg-gray-800">
+                                  <img
+                                    src={selectedBuilderElement.imageData}
+                                    alt="Stamp preview"
+                                    className="max-h-20 max-w-full object-contain"
+                                  />
+                                </div>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => stampInputRef.current?.click()}
+                                    className="flex flex-1 items-center justify-center gap-1.5 rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:border-blue-500 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300"
+                                  >
+                                    <ImagePlus className="h-3.5 w-3.5" />
+                                    Replace
+                                  </button>
+                                  <button
+                                    onClick={() => updateBuilderElement(selectedBuilderElement.id, { imageData: undefined })}
+                                    className="flex items-center justify-center gap-1.5 rounded-none border-2 border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700 hover:border-red-400 dark:border-red-900 dark:bg-red-950/20 dark:text-red-300"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => stampInputRef.current?.click()}
+                                className="flex w-full items-center justify-center gap-2 rounded-none border-2 border-dashed border-gray-300 bg-gray-50 px-3 py-4 text-xs font-medium text-gray-500 hover:border-blue-400 hover:text-blue-600 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-400"
+                              >
+                                <ImagePlus className="h-4 w-4" />
+                                Upload stamp image (PNG, JPG)
+                              </button>
+                            )}
+                            <p className="text-[10px] text-gray-400 dark:text-gray-500">
+                              Max 2MB. Use a transparent PNG for best results.
+                            </p>
+                          </div>
+                        ) : (
+                          <label className="text-xs font-medium text-gray-600 dark:text-gray-300">
+                            Text
+                            <input
+                              value={selectedBuilderElement.placeholder}
+                              onChange={(event) =>
+                                updateBuilderElement(selectedBuilderElement.id, {
+                                  placeholder: event.target.value,
+                                })
+                              }
+                              disabled={
+                                selectedBuilderElement.type === "qrDataUrl" ||
+                                selectedBuilderElement.type === "verifyUrl"
+                              }
+                              className="mt-1 w-full rounded-none border-2 border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-950 dark:text-white"
+                            />
+                          </label>
+                        )}
                         {(
                           ["x", "y", "width", "height", "fontSize"] as const
                         ).map((field) => (
